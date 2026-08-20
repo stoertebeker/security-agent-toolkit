@@ -1,6 +1,8 @@
-Analyze the authorized APK configured in `target/TARGET.toml`.
+Analyze the authorized APK or XAPK configured in `target/TARGET.toml`.
 
-If usable preparation output already exists under `extracted/jadx/`, `extracted/apktool/` and `reports/tool-output/` for the current APK, reuse it instead of repeating expensive decompilation. Otherwise run `tools/apk_prepare.py`.
+If usable preparation output already exists under `extracted/jadx/`, `extracted/apktool/` and `reports/tool-output/` for the current input, reuse it instead of repeating expensive decompilation. Otherwise run `tools/apk_prepare.py`.
+
+When `reports/tool-output/xapk-inventory.json` exists, treat the base APK and all split APKs as one application. Use the base manifest for the primary component/permission surface, inspect split-provided code/resources/native libraries, and record OBB coverage/limitations. Opaque non-ZIP OBB data is inventory-only unless separately inspected.
 
 Read `[orchestration]` from TARGET.toml. Respect `max_parallel_agents` for concurrently executing delegated tasks, defaulting to 2 when absent.
 
@@ -19,7 +21,7 @@ Maintain the structured workspace records throughout the run:
 - `findings/research.md`
 - `findings/analysis-log.md`
 
-`findings/coverage.md` must state actual/intentional tool use, deterministic secret-scan coverage and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
+`findings/coverage.md` must state actual/intentional tool use, deterministic secret-scan coverage, XAPK split/OBB coverage when applicable, and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
 
 Detailed non-research work belongs in `reports/subagents/`; one canonical detail artifact per research question belongs in `reports/research/`.
-At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report, including limitations, validation status, material research-driven changes, hard-coded-secret coverage, and a short Tools/Coverage summary. The final report must not replace the structured `findings/` records.
+At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report, including limitations, validation status, material research-driven changes, hard-coded-secret coverage, XAPK/split/OBB limitations when applicable, and a short Tools/Coverage summary. The final report must not replace the structured `findings/` records.
