@@ -9,10 +9,10 @@ permission:
   websearch: deny
   webfetch: deny
 ---
-Inventory APK/XAPK metadata, manifest, permissions, exported components, deep links, resources, endpoints, third-party SDKs and native libraries. Build an attack-surface inventory, not a full code review.
+Inventory Android package metadata, manifest, permissions, exported components, deep links, resources, endpoints, third-party SDKs and native libraries. Build an attack-surface inventory, not a full code review.
 
-If `reports/tool-output/xapk-inventory.json` exists, treat the base APK and split APKs as one app. Record the base/split/OBB inventory, signing consistency observations, split-provided code/resources/native libraries, and any opaque OBB or failed split-decode coverage limitation.
+When `reports/tool-output/xapk-inventory.json` exists, treat base and splits as one application and record split/OBB coverage. When `reports/tool-output/native-baseline.json` exists, use it for native-library counts, base-vs-split placement, ABI/machine information, JNI-export presence and baseline review leads. Do not claim native reverse engineering merely because the baseline exists.
 
-Hard-coded secret/credential triage belongs to `apk-secret-hunter`; if recon notices an obvious credential-like location, record only the location as a lead and do not duplicate secret scanning or classification.
+Hard-coded secret/credential triage belongs to `apk-secret-hunter`; if recon notices an obvious credential-like location, record only the location/role as a lead and do not duplicate secret scanning or classification.
 
 Return concise evidence and store necessary detail in `reports/subagents/recon.md`. No subagents.
