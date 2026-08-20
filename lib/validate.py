@@ -51,6 +51,7 @@ def validate_module(root: Path, module: str):
             )
 
     target_file = template / "target" / "TARGET.example.toml"
+    target = {}
     if target_file.exists():
         try:
             target = tomllib.loads(target_file.read_text())
@@ -60,6 +61,33 @@ def validate_module(root: Path, module: str):
                 errors.append("TARGET.example.toml must define orchestration.max_parallel_agents in range 1..8")
         except Exception as exc:
             errors.append("bad TARGET.example.toml " + str(exc))
+
+    if module == "apk":
+        apk_required = (
+            "tools/apk_prepare.py",
+            "tools/apk_secret_scan.py",
+            ".opencode/agents/apk-secret-hunter.md",
+            ".opencode/agents/apk-researcher.md",
+            ".opencode/agents/apk-web-worker.md",
+            ".opencode/commands/research.md",
+            "findings/secrets.md",
+            "findings/research.md",
+        )
+        for relative in apk_required:
+            if not (template / relative).exists():
+                errors.append("APK template missing " + relative)
+
+        orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
+        for field, lower, upper in (
+            ("research_max_questions", 1, 20),
+            ("research_max_sources_per_question", 1, 20),
+            ("research_max_report_words", 200, 3000),
+        ):
+            value = orchestration.get(field)
+            if not isinstance(value, int) or not lower <= value <= upper:
+                errors.append(
+                    f"APK TARGET.example.toml must define orchestration.{field} in range {lower}..{upper}"
+                )
 
     if set(manifest.get("platforms", {}).get("supported", [])) != SUPPORTED:
         errors.append("platform set mismatch")
