@@ -1,5 +1,11 @@
 [engagement]
 name="Firmware review"
 authorized=false
+
+[orchestration]
+# Maximum number of delegated agent tasks that may run concurrently.
+# This is agent-enforced because OpenCode currently has no native concurrency cap.
+max_parallel_agents=2
+
 [firmware]
 path="input/firmware.bin"
