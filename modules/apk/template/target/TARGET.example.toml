@@ -12,6 +12,18 @@ research_max_questions=3
 research_max_sources_per_question=5
 research_max_report_words=900
 
+[secrets]
+# Keep false for ordinary projects. In a protected workspace, true stores exact
+# matched/decoded values under reports/sensitive/ with restrictive permissions.
+store_plaintext=false
+# Try percent/hex/base64/base64url decoding locally. No web requests are used.
+analyze_encodings=true
+# Guess structured hash/KDF formats and cautious candidates for bare digests.
+# The toolkit never cracks hashes automatically.
+analyze_hashes=true
+# Maximum recursive local decode layers. Recommended range: 0-3.
+max_decode_depth=2
+
 [apk]
 path="input/app.apk"
 
