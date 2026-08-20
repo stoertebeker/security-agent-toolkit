@@ -11,14 +11,16 @@
 
 ## Evidence rules
 
-A suspicious string, dangerous API, exported component, scanner hit, secret-pattern hit, or decompiler artifact is only a lead.
+A suspicious string, dangerous API, exported component, scanner hit, secret-pattern hit, hash-format guess, or decompiler artifact is only a lead.
 Where applicable establish attacker-controlled source -> processing/validation -> security-sensitive sink -> reachability -> impact.
 Distinguish CONFIRMED, LIKELY, NEEDS VALIDATION and FALSE POSITIVE.
 If JADX output is incomplete or suspicious, verify the relevant path against Apktool/Smali before relying on it.
 
-Secret/credential candidates require classification. Distinguish reusable credential/private material from public client configuration, identifiers, certificates/trust anchors, test data and false positives. Never duplicate a full real credential in reports when source location plus fingerprint is sufficient.
+Secret/credential/material candidates require classification. Distinguish reusable credential/private material from public client configuration, reversible encodings, hashes/KDFs, checksums/fingerprints/identifiers, certificates/trust anchors, test data and false positives. Encoding is not hashing, and bare digest length alone does not identify a unique algorithm.
 
-Public research may support or challenge a local hypothesis but cannot confirm an APK vulnerability by itself. Never place credentials, tokens, private target data, proprietary code blocks, local signing allowlist values, or sensitive TARGET.toml contents into web queries.
+Read `[secrets]` in TARGET.toml. When `secrets.store_plaintext=true`, exact matched values and printable locally decoded values may be retained only under `reports/sensitive/`. That directory is intentionally sensitive and must not be copied into ordinary findings, the consolidated report, public research, or web queries. Normal reports should use source locations/fingerprints and reference the sensitive local artifact when needed.
+
+Public research may support or challenge a local hypothesis but cannot confirm an APK vulnerability by itself. Never place credentials, tokens, decoded secret material, private target data, proprietary code blocks, local signing allowlist values, or sensitive TARGET.toml contents into web queries.
 
 ## Research efficiency contract
 
@@ -37,18 +39,19 @@ The primary agent MUST maintain these files throughout the analysis:
 
 - `findings/inventory.md` - package/version/signing metadata, SDK levels, component/library/native inventory.
 - `findings/attack-surface.md` - exported components, deep links, providers, WebViews, IPC and prioritized entry points.
-- `findings/secrets.md` - triaged credentials/keys/tokens/certificates without unnecessarily copying raw values.
+- `findings/secrets.md` - triaged credentials/keys/tokens/certificates/hash material without copying raw sensitive values; reference `reports/sensitive/` when plaintext retention is enabled.
 - `findings/findings.md` - concise evidence-backed security findings and candidate findings.
-- `findings/coverage.md` - what was reviewed, which installed tools were used or intentionally skipped, why they were skipped, secret-scan coverage, and degraded coverage such as JADX errors.
+- `findings/coverage.md` - what was reviewed, which installed tools were used or intentionally skipped, why they were skipped, secret/material-scan coverage, and degraded coverage such as JADX errors.
 - `findings/research.md` - compact index of narrow public-research questions, local-first status, research status, effect and canonical report path.
 - `findings/analysis-log.md` - major decisions and concise delegation provenance, including layer, result path and observed peak concurrency; do not duplicate full finding prose.
 
 Detailed non-research subagent work belongs under `reports/subagents/`.
 Each public-research question gets one detail file under `reports/research/`.
-Raw tool logs and deterministic secret candidates belong under `reports/tool-output/`.
+Raw tool logs and redacted deterministic candidates belong under `reports/tool-output/`.
+Raw retained credentials, decoded material and operator hash/KDF material belong only under `reports/sensitive/` when explicitly enabled.
 
 At the end, produce a human-readable consolidated report at:
 
 - `reports/STATIC_SECURITY_REPORT.md`
 
-The consolidated report is derived from the structured `findings/` files. It does NOT replace them. It should include analysis limitations, validation status, material research-backed changes, hard-coded-secret coverage, and a short Tools/Coverage summary.
+The consolidated report is derived from the structured `findings/` files. It does NOT replace them. It should include analysis limitations, validation status, material research-backed changes, hard-coded-secret/hash-material coverage, and a short Tools/Coverage summary.
