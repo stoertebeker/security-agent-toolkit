@@ -133,7 +133,8 @@ steps = [
     ("AAPT metadata", ["aapt", "dump", "badging", str(apk)], "aapt.txt"),
     (
         "JADX decompilation",
-        ["jadx", "-d", str(ROOT / "extracted" / "jadx"), str(apk)],
+        # Apktool decodes resources separately, so JADX can focus on source code.
+        ["jadx", "--no-res", "-d", str(ROOT / "extracted" / "jadx"), str(apk)],
         "jadx.txt",
     ),
     (
