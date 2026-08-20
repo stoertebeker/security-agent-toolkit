@@ -1,0 +1,1 @@
+Analyze the authorized APK configured in target/TARGET.toml. Prepare it with tools/apk_prepare.py, map attack surfaces, then perform prioritized static security analysis. Keep main context small and use at most two subagents concurrently. Use public research selectively and independently validate important findings.

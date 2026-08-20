@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"; SAT_HOME="${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}"; export ROOT SAT_HOME PATH="$SAT_HOME/bin:$PATH"; source "$ROOT/lib/platform.sh"; source "$ROOT/lib/project.sh"; source "$ROOT/lib/dependencies.sh"
+modok(){ [[ -f "$ROOT/modules/$1/module.toml" ]]; }
+case "${1:-}" in
+ list) python3 "$ROOT/lib/manifest.py" list "$ROOT/modules";;
+ platform) sat_require_supported_platform;sat_print_platform;;
+ doctor) modok "$2"||exit 2;sat_require_supported_platform;echo Core;sat_doctor_dependency opencode;sat_doctor_dependency uv;echo Module;while read -r d;do sat_doctor_dependency "$d";done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" all);;
+ install) modok "$2"||exit 2;sat_require_supported_platform;sat_install_core;while read -r d;do sat_install_dependency "$d";done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" required);;
+ init) modok "$2"||exit 2;sat_init_project "$ROOT" "$2" "$3";;
+ validate-module) python3 "$ROOT/lib/validate.py" module "$ROOT" "$2";;
+ validate) python3 "$ROOT/lib/validate.py" all "$ROOT";;
+ repo-guard) python3 "$ROOT/tests/repo_guard.py" "$ROOT";;
+ *) echo 'Usage: ./toolkit {list|platform|doctor MODULE|install MODULE|init MODULE DEST|validate-module MODULE|validate|repo-guard}';;
+esac

@@ -1,0 +1,9 @@
+[engagement]
+name="APK review"
+authorized=false
+[apk]
+path="input/app.apk"
+[dynamic]
+enabled=false
+adb_serial=""
+allow_frida=false

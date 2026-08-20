@@ -1,0 +1,1 @@
+Analyze the authorized API from target/TARGET.toml. Start with scope/config verification and attack-surface mapping, then continue into prioritized security testing. Keep main context small, use at most two subagents concurrently, route all target traffic through tools/api_request.py, and independently validate important findings. Maintain findings/ and reports/subagents/.

@@ -1,0 +1,1 @@
+Analyze the authorized firmware configured in target/TARGET.toml. Identify/extract it, build an attack-surface map, then continue with prioritized deep dives. Keep main context small, use at most two subagents concurrently, research selectively, and independently validate important findings. Static analysis only.

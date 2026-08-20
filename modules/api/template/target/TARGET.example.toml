@@ -1,0 +1,15 @@
+[engagement]
+name="API assessment"
+authorized=false
+
+[[scope.rules]]
+base_url="https://api.example.test/v1/"
+methods=["GET","HEAD","OPTIONS"]
+
+[limits]
+request_spacing_ms=500
+request_timeout_seconds=20
+
+[[credentials.profiles]]
+name="anonymous"
+headers={}

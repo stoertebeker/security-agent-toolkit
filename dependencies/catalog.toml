@@ -1,0 +1,122 @@
+[dependencies.ca-certificates]
+kind = "apt"
+check = "test -r /etc/ssl/certs/ca-certificates.crt"
+packages = ["ca-certificates"]
+
+[dependencies.curl]
+kind = "apt"
+check = "command -v curl"
+packages = ["curl"]
+
+[dependencies.python3]
+kind = "apt"
+check = "command -v python3"
+packages = ["python3"]
+
+[dependencies.unzip]
+kind = "apt"
+check = "command -v unzip"
+packages = ["unzip"]
+
+[dependencies.file]
+kind = "apt"
+check = "command -v file"
+packages = ["file"]
+
+[dependencies.binutils]
+kind = "apt"
+check = "command -v objdump && command -v readelf && command -v nm"
+packages = ["binutils"]
+
+[dependencies.ripgrep]
+kind = "apt"
+check = "command -v rg"
+packages = ["ripgrep"]
+
+[dependencies.yara]
+kind = "apt"
+check = "command -v yara"
+packages = ["yara"]
+
+[dependencies.firmware-extractors]
+kind = "apt"
+check = "command -v unsquashfs && command -v 7z && command -v zstd && command -v lz4"
+packages = ["squashfs-tools", "p7zip-full", "zstd", "lz4", "lzop", "lziprecover", "mtd-utils", "device-tree-compiler", "e2fsprogs", "cpio", "xz-utils"]
+
+[dependencies.android-build-tools]
+kind = "apt"
+check = "command -v adb && command -v aapt && command -v apksigner"
+packages = ["adb", "aapt", "apksigner"]
+
+[dependencies.nmap]
+kind = "apt"
+check = "command -v nmap"
+packages = ["nmap"]
+
+[dependencies.opencode]
+kind = "handler"
+handler = "install_opencode"
+check = "command -v opencode"
+
+[dependencies.uv]
+kind = "handler"
+handler = "install_uv"
+check = "command -v uv"
+
+[dependencies.jdk21]
+kind = "handler"
+handler = "install_jdk21"
+check = "java -version 2>&1 | head -n1 | grep -q '\"21'"
+
+[dependencies.ghidra]
+kind = "handler"
+handler = "install_ghidra"
+check = "command -v analyzeHeadless"
+
+[dependencies.jadx]
+kind = "handler"
+handler = "install_jadx"
+check = "command -v jadx"
+
+[dependencies.apktool]
+kind = "handler"
+handler = "install_apktool"
+check = "command -v apktool"
+
+[dependencies.rust]
+kind = "handler"
+handler = "install_rust"
+check = "command -v cargo && command -v rustc"
+
+[dependencies.binwalk]
+kind = "handler"
+handler = "install_binwalk"
+check = "command -v binwalk"
+
+[dependencies.unblob]
+kind = "handler"
+handler = "install_python_tool"
+check = "command -v unblob"
+package = "unblob"
+executable = "unblob"
+
+[dependencies.semgrep]
+kind = "handler"
+handler = "install_python_tool"
+check = "command -v semgrep"
+package = "semgrep"
+executable = "semgrep"
+
+[dependencies.androguard]
+kind = "handler"
+handler = "install_python_tool"
+check = "command -v androguard"
+package = "androguard"
+executable = "androguard"
+
+[dependencies.frida-tools]
+kind = "handler"
+handler = "install_python_tool"
+check = "command -v frida"
+package = "frida-tools"
+executable = "frida"

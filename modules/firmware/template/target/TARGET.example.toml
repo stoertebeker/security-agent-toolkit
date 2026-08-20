@@ -1,0 +1,5 @@
+[engagement]
+name="Firmware review"
+authorized=false
+[firmware]
+path="input/firmware.bin"
