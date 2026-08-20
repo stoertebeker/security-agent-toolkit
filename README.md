@@ -166,6 +166,12 @@ authorized = true
 path = "input/app.apk"
 ```
 
+Prepare the APK locally if desired before launching OpenCode:
+
+```bash
+python3 tools/apk_prepare.py
+```
+
 Then start the prepared OpenCode environment:
 
 ```bash
@@ -173,6 +179,40 @@ Then start the prepared OpenCode environment:
 ```
 
 The APK module uses static analysis by default. Dynamic Android testing remains explicitly gated in the project's `TARGET.toml` and can use an external ADB-connected device if desired. No Android emulator is installed by the toolkit.
+
+### APK reporting
+
+The primary agent maintains durable records under `findings/` and writes the final human-readable report to:
+
+```text
+reports/STATIC_SECURITY_REPORT.md
+```
+
+The structured files include inventory, attack surface, secrets, findings, coverage/tool usage, public-research questions, and an analysis/subagent log. Detailed delegated notes stay under `reports/subagents/`, while detailed public-research notes stay under `reports/research/`.
+
+`findings/coverage.md` should explain which installed tools were actually used or intentionally skipped and why. Tools are installed so they are available when useful; agents should not run them merely to tick a box.
+
+### Targeted public research
+
+Public web research is intentionally restricted to the dedicated `apk-researcher` subagent. Other APK agents do not receive web access. The researcher is used only after local evidence produces a narrow question, for example:
+
+- exact Android API/security behavior
+- known advisories/CVEs for an identified library/version
+- upstream fixes, changelogs or source code
+- public package ownership/signing history
+- public information about partner applications referenced by package name
+
+The researcher records detailed source notes under `reports/research/`. Public information is correlated with local APK evidence and does not by itself confirm a vulnerability.
+
+After an initial analysis you can explicitly run the follow-up command inside OpenCode:
+
+```text
+/research
+```
+
+This reviews unresolved findings, generates only worthwhile public questions, delegates them to `apk-researcher`, invokes `apk-validator` when research materially changes an important conclusion, and updates the structured findings plus final report.
+
+Sensitive target data, credentials, tokens, private URLs and proprietary code must never be sent to websearch/webfetch.
 
 ## Firmware example
 
@@ -261,7 +301,8 @@ Across all modules:
 - `subagent_depth` remains `1`.
 - Detailed raw analysis belongs in project-local reports rather than the primary model context.
 - Findings are evidence-first and should distinguish confirmed issues from hypotheses requiring validation.
-- Targeted public research is delegated to specialized researcher agents.
+- Targeted public research is delegated to specialized researcher agents with tightly scoped web access.
+- Public research never replaces local evidence and must never expose sensitive assessment data.
 - Important findings can be independently challenged by validator agents.
 - Project artifacts stay local to the generated workspace.
 - The toolkit repository itself remains free of project/customer/target data.
