@@ -5,7 +5,7 @@ r=Path(sys.argv[1]); bad=[]
 for p in r.rglob('*'):
     if not p.is_file(): continue
     s=str(p.relative_to(r))
-    if re.search(r'(?i)\.(apk|aab|apks|bin|img|fw|trx|pcap|pcapng|har)$',s) or s.endswith('/TARGET.toml') or s == 'TARGET.toml':
+    if re.search(r'(?i)\.(apk|xapk|aab|apks|apkm|obb|bin|img|fw|trx|pcap|pcapng|har)$',s) or s.endswith('/TARGET.toml') or s == 'TARGET.toml':
         bad.append(s)
 if bad:
     print('[!] Project/assessment data found in toolkit repository:')
