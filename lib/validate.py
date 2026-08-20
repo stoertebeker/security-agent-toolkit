@@ -102,6 +102,14 @@ def validate_module(root: Path, module: str):
                     f"APK TARGET.example.toml must define orchestration.{field} in range {lower}..{upper}"
                 )
 
+        secret_cfg = target.get("secrets", {}) if isinstance(target, dict) else {}
+        for field in ("store_plaintext", "analyze_encodings", "analyze_hashes"):
+            if not isinstance(secret_cfg.get(field), bool):
+                errors.append(f"APK TARGET.example.toml must define secrets.{field} as boolean")
+        depth_value = secret_cfg.get("max_decode_depth")
+        if not isinstance(depth_value, int) or not 0 <= depth_value <= 3:
+            errors.append("APK TARGET.example.toml must define secrets.max_decode_depth in range 0..3")
+
     if set(manifest.get("platforms", {}).get("supported", [])) != SUPPORTED:
         errors.append("platform set mismatch")
 
