@@ -149,6 +149,11 @@ steps = [
         ],
         "apktool.txt",
     ),
+    (
+        "Deterministic secret candidate scan",
+        [sys.executable, str(ROOT / "tools" / "apk_secret_scan.py")],
+        "secret-scan.txt",
+    ),
 ]
 
 failures: list[str] = []
@@ -177,9 +182,10 @@ for label, command, log_name in steps:
     failures.append(label)
 
 print(f"\n[+] APK preparation completed: {apk.relative_to(ROOT)}")
-print("    JADX output:    extracted/jadx/")
-print("    Apktool output: extracted/apktool/")
-print("    Tool logs:      reports/tool-output/")
+print("    JADX output:       extracted/jadx/")
+print("    Apktool output:    extracted/apktool/")
+print("    Tool logs:         reports/tool-output/")
+print("    Secret candidates: reports/tool-output/secret-candidates.txt")
 
 if warnings:
     print("\n[!] Preparation completed with degraded coverage:")
