@@ -11,5 +11,7 @@ Invariants:
 - Project temp data stays local and analysis artifacts must not use `/tmp`, `/var/tmp` or `/dev/shm`.
 - `subagent_depth = 1`; primary agents use at most two subagents concurrently.
 - Findings are evidence-first; important candidates get independent validation.
+- When a module supports public research, web access belongs to a dedicated researcher subagent, not the whole agent set. Research must be narrow, source-backed, must not expose sensitive assessment data, and never replaces local validation.
+- Human-readable reports should be derived from durable structured findings/coverage/provenance records rather than replacing them.
 
 For new modules read `docs/MODULE_CONTRACT.md` and `docs/ADDING_A_MODULE.md`, then run `./toolkit validate` and `./toolkit repo-guard`.
