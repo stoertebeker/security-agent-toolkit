@@ -33,6 +33,8 @@ ai_triage_batch_size=20
 ai_representative_locations=3
 
 [apk]
+# Supports a normal APK or an XAPK container. XAPK is safely unpacked by the
+# toolkit; the base APK and all split APKs are inspected as one application.
 path="input/app.apk"
 
 [dynamic]
