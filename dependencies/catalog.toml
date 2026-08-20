@@ -61,7 +61,10 @@ check = "command -v opencode"
 [dependencies.uv]
 kind = "handler"
 handler = "install_uv"
-check = "command -v uv"
+# uv is part of the managed toolkit runtime. Do not accept an unrelated uv
+# from the user's PATH, because Python-tool installation intentionally invokes
+# the toolkit-owned binary below SAT_HOME.
+check = "test -x \"$SAT_HOME/bin/uv\""
 
 [dependencies.jdk21]
 kind = "handler"
