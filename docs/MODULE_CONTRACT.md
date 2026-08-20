@@ -11,4 +11,15 @@ Default `subagent_depth` is 1. Depth 2 is permitted only for a bounded coordinat
 - the nested level materially reduces parent-context growth;
 - no third nested level is possible.
 
-APK public research is the reference implementation for this exception.
+When a module supports public research:
+- perform cheap local artifact checks before creating a web question;
+- isolate websearch/webfetch to narrow worker agents;
+- bound question count, useful-source count, and worker-report size;
+- use one canonical detail artifact per question and link to it from compact durable indexes/logs rather than duplicating source tables and caveats;
+- treat search snippets as discovery leads rather than verified material facts when the decisive source was not actually fetched/read;
+- correlate public facts with local evidence before changing a finding;
+- prefer a consolidated validator pass for a set of material research-driven changes when appropriate.
+
+When a security class can be supported by deterministic preprocessing, use reproducible tooling before agent interpretation. Pattern/scanner hits are leads, not findings. Avoid writing full credentials or other sensitive values into reports when source location plus a non-reversible fingerprint is sufficient.
+
+APK public research and deterministic secret-candidate triage are reference implementations of these patterns.
