@@ -1,8 +1,18 @@
 [engagement]
 name="APK review"
 authorized=false
+
+[orchestration]
+# Maximum number of delegated agent tasks that may run concurrently.
+# This is enforced by the agent prompts; OpenCode currently has no native
+# max-concurrency scheduler setting. Recommended range: 1-8.
+max_parallel_agents=2
+research_max_questions=3
+research_max_sources_per_question=5
+
 [apk]
 path="input/app.apk"
+
 [dynamic]
 enabled=false
 adb_serial=""
