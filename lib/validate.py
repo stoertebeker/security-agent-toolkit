@@ -70,6 +70,7 @@ def validate_module(root: Path, module: str):
             ".opencode/agents/apk-researcher.md",
             ".opencode/agents/apk-web-worker.md",
             ".opencode/commands/research.md",
+            ".opencode/commands/secrets.md",
             "findings/secrets.md",
             "findings/research.md",
         )
