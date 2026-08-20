@@ -1,6 +1,9 @@
 *.apk
+*.xapk
 *.aab
 *.apks
+*.apkm
+*.obb
 *.bin
 *.img
 *.fw
