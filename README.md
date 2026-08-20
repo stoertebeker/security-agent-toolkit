@@ -13,9 +13,9 @@ The Git repository contains only framework code, module templates, dependency de
 - Kali Rolling
 - Parrot OS 7.x
 
-The toolkit targets Debian/APT-family Linux systems and is designed to remain usable inside LXC-style workers. It deliberately does **not** install QEMU, KVM, Docker, FirmAE, Android emulators, or other emulation stacks.
+The toolkit targets Debian/APT-family Linux systems and is designed for LXC-style workers. It deliberately does **not** install QEMU, KVM, Docker, FirmAE, Android emulators, or other emulation stacks.
 
-## Available modules
+## Modules
 
 ```bash
 ./toolkit list
@@ -27,210 +27,136 @@ Current modules:
 - `api` - authorized API security testing
 - `firmware` - static embedded/firmware security analysis
 
-Each module is installed and initialized independently. Installing the APK module does not automatically install firmware tooling, and vice versa.
+Modules are installed and initialized independently.
 
 ## First installation
-
-Clone the toolkit repository:
 
 ```bash
 git clone https://github.com/stoertebeker/security-agent-toolkit.git
 cd security-agent-toolkit
-```
-
-During development/testing of the modular rewrite, use:
-
-```bash
 git checkout refactor/modular-toolkit-v1
 ```
 
-Calling the CLI without parameters shows the complete command overview:
+Show help and platform detection:
 
 ```bash
 ./toolkit
-```
-
-Check the detected platform:
-
-```bash
 ./toolkit platform
 ```
 
-## Dependency model
+Check and install one module:
 
-OpenCode is a mandatory core dependency and is installed by the toolkit when necessary.
+```bash
+./toolkit doctor apk
+./toolkit install apk
+./toolkit doctor apk
+```
 
-Shared managed runtime files are stored under:
+OpenCode is mandatory core software and is installed automatically when necessary. Managed runtime components live under:
 
 ```text
 ~/.local/share/security-agent-toolkit/
 ```
 
-This location may contain:
-
-- OpenCode
-- uv
-- toolkit-managed Python runtimes and isolated Python tools
-- JDK 21
-- Ghidra
-- JADX
-- Apktool
-- Rust/Binwalk when required
-
-Only native tools that are better provided by the operating system are installed through APT.
-
-The toolkit does not use one giant Python virtual environment. Python applications are installed as isolated uv tools and use a toolkit-managed Python baseline where possible.
-
-### Check before installing
-
-For example:
-
-```bash
-./toolkit doctor apk
-```
-
-This reports which dependencies are already available and which are missing.
-
-### Install exactly one module
-
-```bash
-./toolkit install apk
-```
-
-or:
-
-```bash
-./toolkit install firmware
-./toolkit install api
-```
-
-After installation, verify again:
-
-```bash
-./toolkit doctor apk
-```
+This may contain OpenCode, uv, managed Python runtimes/tools, JDK 21, Ghidra, JADX, Apktool and Rust/Binwalk where needed. Native Linux tools are installed through APT.
 
 ## Local workspaces
 
-Analysis projects must be created **outside the Git repository**.
-
-For example:
+Assessment projects must live **outside the Git repository**:
 
 ```bash
 mkdir -p ~/security-work
 ./toolkit init apk ~/security-work/my-app
 ```
 
-The toolkit refuses to initialize an assessment workspace inside its own Git checkout.
+The toolkit refuses to initialize a project inside its own checkout. Generated workspaces keep temporary analysis data under `work/tmp` and set `TMPDIR`, `TMP` and `TEMP` accordingly.
 
-A generated workspace contains the OpenCode project configuration, agents, local temporary directories, reports/findings directories, target configuration examples, and module-specific helper tools.
+## Agent orchestration settings
 
-All workspace temporary files are kept project-local. The generated start scripts set `TMPDIR`, `TMP`, and `TEMP` to the workspace's `work/tmp` directory rather than intentionally using `/tmp` for analysis artifacts.
+Each local project has an `[orchestration]` section in `target/TARGET.toml`.
 
-## APK example
+Common setting:
 
-Install the module:
-
-```bash
-./toolkit doctor apk
-./toolkit install apk
+```toml
+[orchestration]
+max_parallel_agents = 2
 ```
 
-Create an external workspace:
+This is the maximum number of delegated agent tasks that should execute concurrently. The default is 2 and the recommended range is 1-8. OpenCode currently has no native max-concurrency scheduler option, so the project agents enforce this policy from the target configuration.
+
+The APK module also exposes bounded research controls:
+
+```toml
+[orchestration]
+max_parallel_agents = 2
+research_max_questions = 3
+research_max_sources_per_question = 5
+```
+
+APK research uses one additional, tightly bounded agent level:
+
+```text
+apk-security
+  -> apk-researcher       (coordinator, steps: 8)
+       -> apk-web-worker  (one narrow web question, steps: 5)
+```
+
+`apk-security` cannot call the web worker directly. The researcher can call only the web worker, and the worker cannot spawn further agents. Web access is denied globally for the APK project and enabled only for `apk-web-worker`. OpenCode `subagent_depth=2` is used only for this bounded coordinator/worker pattern. Other modules default to depth 1. OpenCode's `steps` option limits agentic iterations and forces a summary when the budget is reached.
+
+## APK workflow
 
 ```bash
+./toolkit install apk
 ./toolkit init apk ~/security-work/example-apk
 cd ~/security-work/example-apk
-```
-
-Place the APK in the workspace:
-
-```bash
 cp /path/to/application.apk input/app.apk
-```
-
-Edit the local target configuration:
-
-```bash
 nano target/TARGET.toml
+python3 tools/apk_prepare.py
+./start.sh
 ```
 
-Minimal example:
+Minimal target configuration:
 
 ```toml
 [engagement]
 name = "APK review"
 authorized = true
 
+[orchestration]
+max_parallel_agents = 2
+research_max_questions = 3
+research_max_sources_per_question = 5
+
 [apk]
 path = "input/app.apk"
 ```
 
-Prepare the APK locally if desired before launching OpenCode:
+The APK module is static-first. Dynamic Android testing is separately gated in `TARGET.toml` and can use an external ADB-connected device; no Android emulator is installed.
 
-```bash
-python3 tools/apk_prepare.py
-```
-
-Then start the prepared OpenCode environment:
-
-```bash
-./start.sh
-```
-
-The APK module uses static analysis by default. Dynamic Android testing remains explicitly gated in the project's `TARGET.toml` and can use an external ADB-connected device if desired. No Android emulator is installed by the toolkit.
-
-### APK reporting
-
-The primary agent maintains durable records under `findings/` and writes the final human-readable report to:
+Durable analysis state is stored under `findings/`, detailed delegated work under `reports/subagents/`, public research under `reports/research/`, and the final human-readable report at:
 
 ```text
 reports/STATIC_SECURITY_REPORT.md
 ```
 
-The structured files include inventory, attack surface, secrets, findings, coverage/tool usage, public-research questions, and an analysis/subagent log. Detailed delegated notes stay under `reports/subagents/`, while detailed public-research notes stay under `reports/research/`.
+After an initial analysis, `/research` performs bounded follow-up research only for unresolved public questions that could materially change severity, applicability, confidence or the next analysis step.
 
-`findings/coverage.md` should explain which installed tools were actually used or intentionally skipped and why. Tools are installed so they are available when useful; agents should not run them merely to tick a box.
-
-### Targeted public research
-
-Public web research is intentionally restricted to the dedicated `apk-researcher` subagent. Other APK agents do not receive web access. The researcher is used only after local evidence produces a narrow question, for example:
-
-- exact Android API/security behavior
-- known advisories/CVEs for an identified library/version
-- upstream fixes, changelogs or source code
-- public package ownership/signing history
-- public information about partner applications referenced by package name
-
-The researcher records detailed source notes under `reports/research/`. Public information is correlated with local APK evidence and does not by itself confirm a vulnerability.
-
-After an initial analysis you can explicitly run the follow-up command inside OpenCode:
-
-```text
-/research
-```
-
-This reviews unresolved findings, generates only worthwhile public questions, delegates them to `apk-researcher`, invokes `apk-validator` when research materially changes an important conclusion, and updates the structured findings plus final report.
-
-Sensitive target data, credentials, tokens, private URLs and proprietary code must never be sent to websearch/webfetch.
-
-## Firmware example
+## Firmware workflow
 
 ```bash
-./toolkit doctor firmware
 ./toolkit install firmware
 ./toolkit init firmware ~/security-work/router-review
 cd ~/security-work/router-review
 cp /path/to/router.bin input/firmware.bin
+nano target/TARGET.toml
 ./start.sh
 ```
 
-The firmware module intentionally focuses on static analysis and reverse engineering. The base toolkit does not install or rely on emulation software.
+Firmware analysis is static and reverse-engineering focused; no emulation dependency is installed.
 
-## API example
+## API workflow
 
 ```bash
-./toolkit doctor api
 ./toolkit install api
 ./toolkit init api ~/security-work/customer-api
 cd ~/security-work/customer-api
@@ -238,7 +164,7 @@ nano target/TARGET.toml
 ./start.sh
 ```
 
-The API module stores authorization metadata, explicit URL-prefix scope, allowed HTTP methods, and optional test credentials only in the **local project workspace**. Its request wrapper enforces the configured scope and does not automatically follow HTTP redirects.
+The API module stores scope, methods and test credentials only in the local workspace. Active requests go through the module request wrapper, which enforces configured scope and does not automatically follow redirects.
 
 ## Toolkit commands
 
@@ -253,37 +179,23 @@ The API module stores authorization metadata, explicit URL-prefix scope, allowed
 ./toolkit repo-guard
 ```
 
-`./toolkit` or `./toolkit --help` prints a longer explanation and examples.
+`./toolkit` or `./toolkit --help` prints the longer command overview.
 
-## Repository safety
-
-The repository intentionally contains no real assessment data. `.gitignore` and `./toolkit repo-guard` provide additional safeguards against accidentally adding common target and artifact types.
-
-Run:
-
-```bash
-./toolkit repo-guard
-```
-
-before publishing changes if you have been developing new modules locally.
-
-## Developing a new module
+## Developing a module
 
 Read:
 
 ```text
+AGENTS.md
 docs/MODULE_CONTRACT.md
 docs/ADDING_A_MODULE.md
-AGENTS.md
 ```
 
-A module is discovered automatically from `modules/<module>/module.toml`; there is no hardcoded central list of module names.
+Modules are discovered automatically from `modules/<module>/module.toml`; there is no hardcoded registry. New dependencies belong in the central catalog. Every module template must expose `orchestration.max_parallel_agents`; do not hardcode a fixed parallel-agent count in prompts.
 
-When adding a dependency that does not yet exist, also extend the central dependency catalog and ensure it has a valid installation/check strategy for supported platforms.
+Use nested subagents only for a deliberate bounded coordinator -> worker design with explicit task allowlists and finite step budgets.
 
-The repository contains a dedicated OpenCode `module-developer` agent whose job is to keep module structure, dependency registration, templates, documentation, tests, project isolation, and shared security invariants consistent.
-
-Validate development changes with:
+Validate changes with:
 
 ```bash
 ./toolkit validate-module <module>
@@ -293,16 +205,11 @@ Validate development changes with:
 
 ## Design principles
 
-Across all modules:
-
 - OpenCode is the orchestration layer.
-- The primary agent should keep its context small.
-- At most two subagents should be active concurrently by instruction.
-- `subagent_depth` remains `1`.
-- Detailed raw analysis belongs in project-local reports rather than the primary model context.
-- Findings are evidence-first and should distinguish confirmed issues from hypotheses requiring validation.
-- Targeted public research is delegated to specialized researcher agents with tightly scoped web access.
-- Public research never replaces local evidence and must never expose sensitive assessment data.
-- Important findings can be independently challenged by validator agents.
-- Project artifacts stay local to the generated workspace.
-- The toolkit repository itself remains free of project/customer/target data.
+- Primary contexts stay small; bulky detail belongs in project files and delegated sessions.
+- Parallelism is configurable per project through `TARGET.toml`.
+- Default subagent depth is 1; bounded depth 2 is allowed only where it materially reduces context growth.
+- Findings are evidence-first and important candidates get independent validation.
+- Public research is narrow, source-backed and isolated from sensitive assessment data.
+- Project artifacts stay in generated local workspaces.
+- The toolkit repository remains free of project/customer/target data.
