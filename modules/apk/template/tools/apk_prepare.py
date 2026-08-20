@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +58,7 @@ env.update(
     }
 )
 
-# Resolve tools using the same PATH that child processes receive.
+
 def which(executable: str) -> str | None:
     return shutil.which(executable, path=env["PATH"])
 
@@ -133,7 +134,6 @@ steps = [
     ("AAPT metadata", ["aapt", "dump", "badging", str(apk)], "aapt.txt"),
     (
         "JADX decompilation",
-        # Apktool decodes resources separately, so JADX can focus on source code.
         ["jadx", "--no-res", "-d", str(ROOT / "extracted" / "jadx"), str(apk)],
         "jadx.txt",
     ),
@@ -152,17 +152,42 @@ steps = [
 ]
 
 failures: list[str] = []
+warnings: list[str] = []
 for label, command, log_name in steps:
-    if run(label, command, log_name) != 0:
-        failures.append(label)
+    return_code = run(label, command, log_name)
+    if return_code == 0:
+        continue
+
+    # JADX commonly returns a non-zero exit code when only a small number of
+    # classes/methods fail to decompile. If usable source output exists, treat
+    # this as degraded coverage rather than a failed preparation. Apktool/Smali
+    # remains available to validate the affected code paths.
+    if label == "JADX decompilation":
+        java_files = sum(1 for _ in (ROOT / "extracted" / "jadx").rglob("*.java"))
+        log_text = (REPORT_DIR / log_name).read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"finished with errors, count:\s*(\d+)", log_text)
+        error_count = match.group(1) if match else "unknown"
+        if java_files > 0:
+            warnings.append(
+                f"JADX produced usable partial output ({java_files} Java files; decompiler errors: {error_count}). "
+                "Use Apktool/Smali to verify affected security-relevant paths."
+            )
+            continue
+
+    failures.append(label)
 
 print(f"\n[+] APK preparation completed: {apk.relative_to(ROOT)}")
-print(f"    JADX output:    extracted/jadx/")
-print(f"    Apktool output: extracted/apktool/")
-print(f"    Tool logs:      reports/tool-output/")
+print("    JADX output:    extracted/jadx/")
+print("    Apktool output: extracted/apktool/")
+print("    Tool logs:      reports/tool-output/")
+
+if warnings:
+    print("\n[!] Preparation completed with degraded coverage:")
+    for warning in warnings:
+        print(f"    - {warning}")
 
 if failures:
-    print("\n[!] Some preparation steps returned errors:")
+    print("\n[!] Preparation failed in required steps:")
     for failure in failures:
         print(f"    - {failure}")
     print("    Review the corresponding log files before starting the analysis.")
