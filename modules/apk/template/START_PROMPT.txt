@@ -4,9 +4,11 @@ If usable preparation output already exists under `extracted/jadx/`, `extracted/
 
 Read `[orchestration]` from TARGET.toml. Respect `max_parallel_agents` for concurrently executing delegated tasks, defaulting to 2 when absent.
 
-Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small.
+Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small. After preparation, triage the deterministic hard-coded secret/credential candidates in `reports/tool-output/secret-candidates.*` with `apk-secret-hunter`; do not treat pattern hits as findings until local usage and classification are established.
 
-Use targeted public research when a concrete external fact could materially change severity, applicability or the next analysis step. Respect `research_max_questions` and `research_max_sources_per_question` from TARGET.toml, defaulting to 3 and 5. First record the narrow question and local evidence in `findings/research.md`, then delegate the bounded batch to `apk-researcher`. Detailed source notes belong under `reports/research/`. Public research never replaces local validation, and important research-backed conclusions should be independently validated.
+For public research use local-first behavior: first determine whether existing Java/Smali/XML/resources, metadata, hashes, certificate parsing, or a focused local subagent can answer the uncertainty. Only externally answerable residual questions go to `apk-researcher`. Respect `research_max_questions`, `research_max_sources_per_question`, and `research_max_report_words` from TARGET.toml, defaulting to 3, 5 and 900.
+
+`findings/research.md` is only a compact index. Each public question gets exactly one canonical detail file under `reports/research/RQ-XX-....md`; do not create a separate batch-summary report. Perform cheap deterministic local correlation after research before marking something unresolved. Search-only source leads must not change findings without verified source support and local applicability.
 
 Maintain the structured workspace records throughout the run:
 - `findings/inventory.md`
@@ -17,7 +19,7 @@ Maintain the structured workspace records throughout the run:
 - `findings/research.md`
 - `findings/analysis-log.md`
 
-`findings/coverage.md` must state which installed analysis tools were actually used or intentionally skipped and why. `findings/analysis-log.md` must record delegated subagent tasks and their result-file paths.
+`findings/coverage.md` must state actual/intentional tool use, deterministic secret-scan coverage and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
 
-Detailed delegated work belongs in `reports/subagents/`; detailed public research belongs in `reports/research/`.
-At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report, including limitations, validation status, relevant research context and a short Tools/Coverage summary. The final report must not replace the structured `findings/` records.
+Detailed non-research work belongs in `reports/subagents/`; one canonical detail artifact per research question belongs in `reports/research/`.
+At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report, including limitations, validation status, material research-driven changes, hard-coded-secret coverage, and a short Tools/Coverage summary. The final report must not replace the structured `findings/` records.
