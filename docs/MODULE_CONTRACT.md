@@ -20,6 +20,15 @@ When a module supports public research:
 - correlate public facts with local evidence before changing a finding;
 - prefer a consolidated validator pass for a set of material research-driven changes when appropriate.
 
-When a security class can be supported by deterministic preprocessing, use reproducible tooling before agent interpretation. Pattern/scanner hits are leads, not findings. Avoid writing full credentials or other sensitive values into reports when source location plus a non-reversible fingerprint is sufficient.
+When a security class can be supported by deterministic preprocessing, use reproducible tooling before agent interpretation. Pattern/scanner hits are leads, not findings. Prefer semantic grouping/deduplication before AI review so repeated/decompiler/localization copies are not independently re-analyzed. Deterministic priority is ordering only; final plausibility/classification belongs to evidence-aware local review.
 
-APK public research and deterministic secret-candidate triage are reference implementations of these patterns.
+For credential/secret workflows:
+- keep normal reports redacted by default;
+- if exact values are operationally required, expose an explicit per-project opt-in rather than silently copying them into findings or chat summaries;
+- confine opted-in plaintext/decoded values to a dedicated local sensitive-artifact path with restrictive permissions where possible;
+- never send sensitive values into public research merely because plaintext retention is enabled;
+- distinguish reversible encodings from hashes/KDFs and distinguish both from public client configuration, certificates/fingerprints, checksums, identifiers, test data, and false positives;
+- bare digest lengths are ambiguous unless local implementation context establishes the algorithm;
+- automatic cracking/password recovery is outside the normal analysis workflow.
+
+APK public research and deterministic secret/material preprocessing -> semantic grouping -> bounded AI plausibility triage are reference implementations of these patterns.
