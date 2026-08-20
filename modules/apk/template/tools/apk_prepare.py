@@ -38,6 +38,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def first_hash(path: Path) -> str | None:
+    try:
+        value = path.read_text(encoding="utf-8", errors="replace").strip().split()[0]
+    except (OSError, IndexError):
+        return None
+    return value.lower() if re.fullmatch(r"[0-9A-Fa-f]{64}", value) else None
+
+
 def safe_slug(value: str) -> str:
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
     return value[:120] or "split"
@@ -50,7 +58,6 @@ def safe_zip_members(archive: zipfile.ZipFile, label: str, max_uncompressed: int
     total = sum(info.file_size for info in infos)
     if total > max_uncompressed:
         fail(f"{label} expands to more than {max_uncompressed // (1024**3)} GiB; refusing automatic extraction")
-
     checked: list[zipfile.ZipInfo] = []
     for info in infos:
         name = info.filename.replace("\\", "/")
@@ -87,7 +94,6 @@ def safe_extract_zip(path: Path, destination: Path, label: str, max_uncompressed
 
 with TARGET.open("rb") as handle:
     config = tomllib.load(handle)
-
 if not config.get("engagement", {}).get("authorized", False):
     fail("engagement.authorized=false")
 
@@ -103,52 +109,45 @@ for directory in (TMP_DIR, JADX_DIR, APKTOOL_DIR, REPORT_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 env = os.environ.copy()
-env.update(
-    {
-        "TMPDIR": str(TMP_DIR),
-        "TMP": str(TMP_DIR),
-        "TEMP": str(TMP_DIR),
-        "PATH": f"{SAT_HOME / 'bin'}:{env.get('PATH', '')}",
-        "JAVA_TOOL_OPTIONS": (
-            env.get("JAVA_TOOL_OPTIONS", "") + f" -Djava.io.tmpdir={TMP_DIR}"
-        ).strip(),
-    }
-)
+env.update({
+    "TMPDIR": str(TMP_DIR),
+    "TMP": str(TMP_DIR),
+    "TEMP": str(TMP_DIR),
+    "PATH": f"{SAT_HOME / 'bin'}:{env.get('PATH', '')}",
+    "JAVA_TOOL_OPTIONS": (env.get("JAVA_TOOL_OPTIONS", "") + f" -Djava.io.tmpdir={TMP_DIR}").strip(),
+})
 
 
 def which(executable: str) -> str | None:
     return shutil.which(executable, path=env["PATH"])
 
 
-required_tools = ["file", "apksigner", "aapt", "jadx", "apktool"]
+required_tools = ["file", "apksigner", "jadx", "apktool"]
 missing = [tool for tool in required_tools if not which(tool)]
 if missing:
-    fail(
-        "Required APK tools missing: "
-        + ", ".join(missing)
-        + ". Run './toolkit install apk' in the toolkit repository."
-    )
+    fail("Required APK tools missing: " + ", ".join(missing) + ". Run './toolkit install apk' in the toolkit repository.")
+metadata_tools = [tool for tool in ("aapt2", "aapt") if which(tool)]
+if not metadata_tools:
+    fail("Required APK metadata tool missing: neither aapt2 nor aapt is available")
+
+current_input_sha = sha256_file(input_path)
+previous_input_sha = first_hash(REPORT_DIR / ("xapk.sha256" if input_path.suffix.lower() == ".xapk" else "apk.sha256"))
+same_input_as_previous = previous_input_sha == current_input_sha
 
 
 def prepare_input() -> tuple[Path, list[dict], list[Path], dict | None]:
     suffix = input_path.suffix.lower()
     if suffix == ".apk":
-        (REPORT_DIR / "apk.sha256").write_text(
-            f"{sha256_file(input_path)}  {input_path.relative_to(ROOT)}\n", encoding="utf-8"
-        )
+        (REPORT_DIR / "apk.sha256").write_text(f"{current_input_sha}  {input_path.relative_to(ROOT)}\n", encoding="utf-8")
         return input_path, [], [], None
-
     if suffix != ".xapk":
         fail("Unsupported APK input. Use a .apk or .xapk file.")
     if not zipfile.is_zipfile(input_path):
         fail("XAPK is not a valid ZIP container")
-
     if XAPK_DIR.exists():
         shutil.rmtree(XAPK_DIR)
     safe_extract_zip(input_path, XAPK_DIR, "XAPK container")
-    (REPORT_DIR / "xapk.sha256").write_text(
-        f"{sha256_file(input_path)}  {input_path.relative_to(ROOT)}\n", encoding="utf-8"
-    )
+    (REPORT_DIR / "xapk.sha256").write_text(f"{current_input_sha}  {input_path.relative_to(ROOT)}\n", encoding="utf-8")
 
     manifest: dict | None = None
     manifest_path = XAPK_DIR / "manifest.json"
@@ -175,30 +174,20 @@ def prepare_input() -> tuple[Path, list[dict], list[Path], dict | None]:
                 fail(f"APK path escaped XAPK directory: {item.get('file')!r}")
             if not file_path.is_file():
                 fail(f"XAPK manifest references missing APK: {item.get('file')}")
-            apk_entries.append({
-                "id": str(item.get("id") or f"split-{index}"),
-                "file": file_path,
-            })
-
+            apk_entries.append({"id": str(item.get("id") or f"split-{index}"), "file": file_path})
     if not apk_entries:
-        apk_entries = [
-            {"id": path.stem, "file": path}
-            for path in sorted(XAPK_DIR.rglob("*.apk"))
-        ]
+        apk_entries = [{"id": path.stem, "file": path} for path in sorted(XAPK_DIR.rglob("*.apk"))]
     if not apk_entries:
         fail("XAPK contains no APK files")
 
-    base_entry = next((entry for entry in apk_entries if entry["id"] == "base"), None)
+    base_entry = next((entry for entry in apk_entries if entry["id"].lower() == "base"), None)
     package_name = str(manifest.get("package_name", "")) if manifest else ""
     if base_entry is None and package_name:
         base_entry = next((entry for entry in apk_entries if entry["file"].name == f"{package_name}.apk"), None)
     if base_entry is None:
         base_entry = next((entry for entry in apk_entries if entry["file"].name.lower() == "base.apk"), None)
     if base_entry is None:
-        non_config = [
-            entry for entry in apk_entries
-            if not re.match(r"^(?:split_)?config[._]", entry["file"].stem, re.IGNORECASE)
-        ]
+        non_config = [entry for entry in apk_entries if not re.match(r"^(?:split_)?config[._]", entry["file"].stem, re.IGNORECASE)]
         if len(non_config) == 1:
             base_entry = non_config[0]
     if base_entry is None and len(apk_entries) == 1:
@@ -209,57 +198,25 @@ def prepare_input() -> tuple[Path, list[dict], list[Path], dict | None]:
     base_apk = base_entry["file"]
     split_entries = [entry for entry in apk_entries if entry is not base_entry]
     obb_files = sorted(XAPK_DIR.rglob("*.obb"))
-
     inventory = {
         "format": "xapk",
         "container": str(input_path.relative_to(ROOT)),
-        "container_sha256": sha256_file(input_path),
+        "container_sha256": current_input_sha,
         "xapk_version": manifest.get("xapk_version") if manifest else None,
         "package_name": manifest.get("package_name") if manifest else None,
         "version_name": manifest.get("version_name") if manifest else None,
         "version_code": manifest.get("version_code") if manifest else None,
         "base_apk": str(base_apk.relative_to(ROOT)),
         "base_sha256": sha256_file(base_apk),
-        "splits": [
-            {
-                "id": entry["id"],
-                "file": str(entry["file"].relative_to(ROOT)),
-                "sha256": sha256_file(entry["file"]),
-                "size": entry["file"].stat().st_size,
-            }
-            for entry in split_entries
-        ],
-        "obb_files": [
-            {
-                "file": str(path.relative_to(ROOT)),
-                "sha256": sha256_file(path),
-                "size": path.stat().st_size,
-                "zip_compatible": zipfile.is_zipfile(path),
-            }
-            for path in obb_files
-        ],
+        "splits": [{"id": entry["id"], "file": str(entry["file"].relative_to(ROOT)), "sha256": sha256_file(entry["file"]), "size": entry["file"].stat().st_size} for entry in split_entries],
+        "obb_files": [{"file": str(path.relative_to(ROOT)), "sha256": sha256_file(path), "size": path.stat().st_size, "zip_compatible": zipfile.is_zipfile(path)} for path in obb_files],
     }
-    (REPORT_DIR / "xapk-inventory.json").write_text(
-        json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    lines = [
-        "# XAPK inventory",
-        f"container: {inventory['container']}",
-        f"package: {inventory['package_name'] or 'unknown'}",
-        f"version: {inventory['version_name'] or 'unknown'} ({inventory['version_code'] or 'unknown'})",
-        f"base: {inventory['base_apk']}",
-        f"splits: {len(split_entries)}",
-        f"obb files: {len(obb_files)}",
-        "",
-    ]
-    for entry in split_entries:
-        lines.append(f"split {entry['id']}: {entry['file'].relative_to(ROOT)}")
-    for path in obb_files:
-        lines.append(f"obb: {path.relative_to(ROOT)} zip_compatible={zipfile.is_zipfile(path)}")
+    (REPORT_DIR / "xapk-inventory.json").write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lines = ["# XAPK inventory", f"container: {inventory['container']}", f"package: {inventory['package_name'] or 'unknown'}", f"version: {inventory['version_name'] or 'unknown'} ({inventory['version_code'] or 'unknown'})", f"base: {inventory['base_apk']}", f"splits: {len(split_entries)}", f"obb files: {len(obb_files)}", ""]
+    lines += [f"split {entry['id']}: {entry['file'].relative_to(ROOT)}" for entry in split_entries]
+    lines += [f"obb: {path.relative_to(ROOT)} zip_compatible={zipfile.is_zipfile(path)}" for path in obb_files]
     (REPORT_DIR / "xapk-inventory.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    (REPORT_DIR / "apk.sha256").write_text(
-        f"{sha256_file(base_apk)}  {base_apk.relative_to(ROOT)}\n", encoding="utf-8"
-    )
+    (REPORT_DIR / "apk.sha256").write_text(f"{sha256_file(base_apk)}  {base_apk.relative_to(ROOT)}\n", encoding="utf-8")
     return base_apk, split_entries, obb_files, inventory
 
 
@@ -273,18 +230,10 @@ def run(label: str, command: list[str], log_name: str) -> int:
     print(f"[*] {label}", flush=True)
     print(f"    log: {log_path.relative_to(ROOT)}", flush=True)
     started = time.monotonic()
-
     with log_path.open("w", encoding="utf-8", errors="replace") as log:
         log.write("Command: " + " ".join(map(str, command)) + "\n\n")
         log.flush()
-        process = subprocess.Popen(
-            command,
-            cwd=ROOT,
-            env=env,
-            text=True,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
+        process = subprocess.Popen(command, cwd=ROOT, env=env, text=True, stdout=log, stderr=subprocess.STDOUT)
         try:
             return_code = process.wait()
         except KeyboardInterrupt:
@@ -297,97 +246,93 @@ def run(label: str, command: list[str], log_name: str) -> int:
                 process.wait()
             log.write("\nInterrupted by user.\n")
             raise
-
     elapsed = time.monotonic() - started
     if return_code == 0:
         print(f"[+] {label} finished ({elapsed:.1f}s)", flush=True)
     else:
-        print(
-            f"[!] {label} exited with code {return_code} ({elapsed:.1f}s); see {log_path.relative_to(ROOT)}",
-            flush=True,
-        )
+        print(f"[!] {label} exited with code {return_code} ({elapsed:.1f}s); see {log_path.relative_to(ROOT)}", flush=True)
     return return_code
 
 
-steps: list[tuple[str, list[str], str]] = [
-    ("File identification", ["file", str(base_apk)], "file.txt"),
-    (
-        "Base APK signature verification",
-        ["apksigner", "verify", "--verbose", "--print-certs", str(base_apk)],
-        "apksigner.txt",
-    ),
-    ("AAPT base metadata", ["aapt", "dump", "badging", str(base_apk)], "aapt.txt"),
-]
+warnings: list[str] = []
+failures: list[str] = []
+
+
+def run_badging(label: str, apk_path: Path, log_name: str) -> bool:
+    attempted: list[str] = []
+    for index, tool in enumerate(metadata_tools):
+        attempted.append(tool)
+        attempt_log = log_name if index == 0 else log_name.replace(".txt", f"-{tool}.txt")
+        rc = run(f"{label} ({tool})", [tool, "dump", "badging", str(apk_path)], attempt_log)
+        if rc == 0:
+            if attempt_log != log_name:
+                shutil.copyfile(REPORT_DIR / attempt_log, REPORT_DIR / log_name)
+            return True
+    warnings.append(f"{label} failed with {' and '.join(attempted)}; manifest metadata coverage is degraded.")
+    return False
+
+
+if run("File identification", ["file", str(base_apk)], "file.txt") != 0:
+    failures.append("File identification")
+if run("Base APK signature verification", ["apksigner", "verify", "--verbose", "--print-certs", str(base_apk)], "apksigner.txt") != 0:
+    warnings.append("Base APK signature verification failed; static analysis can continue.")
+run_badging("Base APK metadata", base_apk, "aapt.txt")
 
 for index, entry in enumerate(split_entries, 1):
     slug = safe_slug(entry["id"])
-    steps.extend([
-        (
-            f"Split {entry['id']} signature verification",
-            ["apksigner", "verify", "--verbose", "--print-certs", str(entry["file"])],
-            f"xapk-split-{index:02d}-{slug}-apksigner.txt",
-        ),
-        (
-            f"Split {entry['id']} metadata",
-            ["aapt", "dump", "badging", str(entry["file"])],
-            f"xapk-split-{index:02d}-{slug}-aapt.txt",
-        ),
-    ])
+    if run(f"Split {entry['id']} signature verification", ["apksigner", "verify", "--verbose", "--print-certs", str(entry["file"])], f"xapk-split-{index:02d}-{slug}-apksigner.txt") != 0:
+        warnings.append(f"Could not verify signature for split {entry['id']}.")
+    run_badging(f"Split {entry['id']} metadata", entry["file"], f"xapk-split-{index:02d}-{slug}-aapt.txt")
 
-steps.extend([
-    (
-        "JADX decompilation",
-        ["jadx", "--no-res", "-d", str(JADX_DIR), *map(str, all_apks)],
-        "jadx.txt",
-    ),
-    (
-        "Base Apktool decode",
-        ["apktool", "d", "-f", "-o", str(APKTOOL_DIR), str(base_apk)],
-        "apktool.txt",
-    ),
-])
+java_files_existing = sum(1 for _ in JADX_DIR.rglob("*.java"))
+reuse_jadx = same_input_as_previous and java_files_existing > 0 and (REPORT_DIR / "jadx.txt").is_file()
+reuse_apktool = same_input_as_previous and ((APKTOOL_DIR / "AndroidManifest.xml").is_file() or (APKTOOL_DIR / "apktool.yml").is_file())
 
-failures: list[str] = []
-warnings: list[str] = []
-for label, command, log_name in steps:
-    return_code = run(label, command, log_name)
-    if return_code == 0:
-        continue
-    if label == "JADX decompilation":
+if reuse_jadx:
+    log_text = (REPORT_DIR / "jadx.txt").read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"finished with errors, count:\s*(\d+)", log_text)
+    error_count = match.group(1) if match else None
+    note = f"Reusing existing JADX output ({java_files_existing} Java files"
+    if error_count:
+        note += f"; prior decompiler errors: {error_count}"
+    warnings.append(note + ") for unchanged input.")
+else:
+    rc = run("JADX decompilation", ["jadx", "--no-res", "-d", str(JADX_DIR), *map(str, all_apks)], "jadx.txt")
+    if rc != 0:
         java_files = sum(1 for _ in JADX_DIR.rglob("*.java"))
-        log_text = (REPORT_DIR / log_name).read_text(encoding="utf-8", errors="replace")
+        log_text = (REPORT_DIR / "jadx.txt").read_text(encoding="utf-8", errors="replace")
         match = re.search(r"finished with errors, count:\s*(\d+)", log_text)
         error_count = match.group(1) if match else "unknown"
         if java_files > 0:
-            warnings.append(
-                f"JADX produced usable partial output ({java_files} Java files; decompiler errors: {error_count}). "
-                "Use Apktool/Smali to verify affected security-relevant paths."
-            )
-            continue
-    failures.append(label)
+            warnings.append(f"JADX produced usable partial output ({java_files} Java files; decompiler errors: {error_count}). Use Apktool/Smali to verify affected security-relevant paths.")
+        else:
+            failures.append("JADX decompilation")
 
-# Decode split APKs underneath the base Apktool tree so deterministic secret/material
-# scanning and agent searches naturally include feature/config split contents.
+if reuse_apktool:
+    warnings.append("Reusing existing base Apktool decode for unchanged input.")
+else:
+    if run("Base Apktool decode", ["apktool", "d", "-f", "-o", str(APKTOOL_DIR), str(base_apk)], "apktool.txt") != 0:
+        failures.append("Base Apktool decode")
+
 if not failures:
     split_root = APKTOOL_DIR / "splits"
     for index, entry in enumerate(split_entries, 1):
         slug = safe_slug(entry["id"])
         output = split_root / f"{index:02d}-{slug}"
-        return_code = run(
-            f"Apktool decode split {entry['id']}",
-            ["apktool", "d", "-f", "-o", str(output), str(entry["file"])],
-            f"xapk-split-{index:02d}-{slug}-apktool.txt",
-        )
-        if return_code != 0:
+        already_decoded = same_input_as_previous and output.exists() and ((output / "AndroidManifest.xml").is_file() or (output / "apktool.yml").is_file())
+        if already_decoded:
+            continue
+        if run(f"Apktool decode split {entry['id']}", ["apktool", "d", "-f", "-o", str(output), str(entry["file"])], f"xapk-split-{index:02d}-{slug}-apktool.txt") != 0:
             warnings.append(f"Apktool could not decode split {entry['id']}; split coverage is degraded.")
 
-    # OBB expansion files are not guaranteed to be ZIP archives. ZIP-compatible OBBs
-    # are safely expanded for static resource/secret inspection; opaque OBBs remain inventoried.
     obb_root = APKTOOL_DIR / "xapk-obb"
     for index, obb in enumerate(obb_files, 1):
         if zipfile.is_zipfile(obb):
+            destination = obb_root / f"{index:02d}-{safe_slug(obb.stem)}"
+            if same_input_as_previous and destination.exists():
+                continue
             try:
-                safe_extract_zip(obb, obb_root / f"{index:02d}-{safe_slug(obb.stem)}", f"OBB {obb.name}")
+                safe_extract_zip(obb, destination, f"OBB {obb.name}")
                 print(f"[+] Extracted ZIP-compatible OBB: {obb.relative_to(ROOT)}", flush=True)
             except SystemExit:
                 raise
@@ -396,8 +341,7 @@ if not failures:
         else:
             warnings.append(f"OBB {obb.name} is opaque/non-ZIP; inventoried but not automatically unpacked.")
 
-# Compare signer SHA-256 digests across split APKs. A mismatch is suspicious/incompatible,
-# but does not prevent static inspection of the supplied container.
+
 def signer_digest(log_path: Path) -> str | None:
     if not log_path.is_file():
         return None
@@ -415,13 +359,20 @@ if split_entries:
             warnings.append(f"Split {entry['id']} signer differs from base APK signer.")
 
 if not failures:
-    return_code = run(
-        "Deterministic secret candidate scan",
-        [sys.executable, str(ROOT / "tools" / "apk_secret_scan.py")],
-        "secret-scan.txt",
-    )
-    if return_code != 0:
+    if run("Deterministic secret candidate scan", [sys.executable, str(ROOT / "tools" / "apk_secret_scan.py")], "secret-scan.txt") != 0:
         failures.append("Deterministic secret candidate scan")
+
+if not failures:
+    state = {
+        "input": str(input_path.relative_to(ROOT)),
+        "input_sha256": current_input_sha,
+        "format": "xapk" if xapk_inventory else "apk",
+        "base_apk": str(base_apk.relative_to(ROOT)),
+        "split_count": len(split_entries),
+        "obb_count": len(obb_files),
+        "metadata_tool_preferred": metadata_tools[0],
+    }
+    (REPORT_DIR / "prepare-state.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 print(f"\n[+] APK preparation completed: {input_path.relative_to(ROOT)}")
 if xapk_inventory:
@@ -429,6 +380,7 @@ if xapk_inventory:
     print("    XAPK inventory:    reports/tool-output/xapk-inventory.json")
 else:
     print("    Input format:      APK")
+print(f"    Metadata tool:     {metadata_tools[0]} (fallback: {', '.join(metadata_tools[1:]) or 'none'})")
 print("    JADX output:       extracted/jadx/")
 print("    Apktool output:    extracted/apktool/")
 print("    Tool logs:         reports/tool-output/")
@@ -438,7 +390,6 @@ if warnings:
     print("\n[!] Preparation completed with degraded or noteworthy coverage:")
     for warning in warnings:
         print(f"    - {warning}")
-
 if failures:
     print("\n[!] Preparation failed in required steps:")
     for failure in failures:
