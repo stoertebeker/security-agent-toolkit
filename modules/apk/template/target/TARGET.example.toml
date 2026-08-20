@@ -23,6 +23,12 @@ analyze_encodings=true
 analyze_hashes=true
 # Maximum recursive local decode layers. Recommended range: 0-3.
 max_decode_depth=2
+# AI plausibility triage works on unique value groups rather than every raw hit.
+ai_plausibility_triage=true
+# Number of unique groups assigned to one short-lived local review worker.
+ai_triage_batch_size=20
+# Inspect at most this many representative occurrences/usages per unique value.
+ai_representative_locations=3
 
 [apk]
 path="input/app.apk"
