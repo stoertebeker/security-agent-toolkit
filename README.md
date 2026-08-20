@@ -156,6 +156,14 @@ Durable secret classification is maintained in:
 findings/secrets.md
 ```
 
+Inside OpenCode, run:
+
+```text
+/secrets
+```
+
+to run or refresh only the deterministic secret scan and triage without repeating broad static analysis or public research.
+
 ### Reporting and follow-up research
 
 Durable analysis state is stored under `findings/`, detailed delegated work under `reports/subagents/`, one canonical public-research report per question under `reports/research/`, and the final human-readable report at:
