@@ -1,1 +1,16 @@
-Analyze the authorized APK configured in target/TARGET.toml. Prepare it with tools/apk_prepare.py, map attack surfaces, then perform prioritized static security analysis. Keep main context small and use at most two subagents concurrently. Use public research selectively and independently validate important findings.
+Analyze the authorized APK configured in `target/TARGET.toml`.
+
+If usable preparation output already exists under `extracted/jadx/`, `extracted/apktool/` and `reports/tool-output/` for the current APK, reuse it instead of repeating expensive decompilation. Otherwise run `tools/apk_prepare.py`.
+
+Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small and use at most two subagents concurrently. Use public research selectively and independently validate important High/Critical candidate findings.
+
+Maintain the structured workspace records throughout the run:
+- `findings/inventory.md`
+- `findings/attack-surface.md`
+- `findings/secrets.md`
+- `findings/findings.md`
+- `findings/coverage.md`
+- `findings/analysis-log.md`
+
+Detailed delegated work belongs in `reports/subagents/`.
+At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report. The final report must not replace the structured `findings/` records.
