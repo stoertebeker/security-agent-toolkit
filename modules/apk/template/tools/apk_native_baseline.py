@@ -147,7 +147,7 @@ def main() -> int:
         fortified = sorted(name for name in undefined if name.endswith("_chk") or "__fortify" in name)[:50]
 
         stack_line = next((line for line in program.splitlines() if "GNU_STACK" in line), "")
-        executable_stack = bool(re.search(r"GNU_STACK.*\bR?W?E\b", stack_line))
+        executable_stack = bool(re.search(r"\bRWE\b", stack_line))
         relro = "GNU_RELRO" in program
         bind_now = "BIND_NOW" in dynamic or bool(re.search(r"FLAGS(?:_1)?[^\n]*\bNOW\b", dynamic))
         textrel = "TEXTREL" in dynamic
