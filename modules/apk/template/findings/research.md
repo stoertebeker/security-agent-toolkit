@@ -1,17 +1,12 @@
-# Public research
+# Public research index
 
-Track narrow public-research questions that arise from local APK evidence.
+This file is an index, not a second research report. Detailed source notes live only in `reports/research/RQ-XX-....md`.
 
-For each question record:
+| ID | Narrow question | Local-first status | Research status | Effect on finding | Canonical detail |
+|---|---|---|---|---|---|
 
-- **Question:**
-- **Why it matters:**
-- **Local evidence:**
-- **Status:** OPEN / ANSWERED / NOT FOUND / NEEDS LOCAL VALIDATION
-- **External answer:**
-- **Sources:**
-- **Applicability to this APK:**
-- **Confidence:**
-- **Remaining validation:**
+Use short cells. `Local-first status` should say what was checked locally before web research (for example `smali traced; server semantics still external`). `Effect on finding` should be one sentence such as `F-03 narrowed; High unsupported` or `no change`.
 
-Do not copy credentials, tokens, private target data or proprietary code into this file merely to formulate a web query.
+Allowed research states: `OPEN`, `ANSWERED`, `PARTIAL`, `NOT_FOUND`, `SOURCE_LEAD_ONLY`, `NEEDS_LOCAL_VALIDATION`.
+
+Do not duplicate source tables, long caveats, raw credentials, tokens, private target data, proprietary code, local signing allowlist values, or certificate fingerprints here.
