@@ -5,9 +5,9 @@
 - Analyze only the APK configured in `target/TARGET.toml` and only when `engagement.authorized=true`.
 - Keep all analysis artifacts inside this workspace. Do not use `/tmp`, `/var/tmp` or `/dev/shm` for analysis artifacts.
 - Static analysis is primary. ADB/Frida testing may target an external authorized device only when explicitly enabled in `TARGET.toml`.
-- The primary agent runs at most TWO subagents concurrently.
+- Read `[orchestration].max_parallel_agents` from TARGET.toml and never exceed that many concurrently executing delegated tasks; default to 2 when absent.
 - Important High/Critical candidate findings require independent validation.
-- Public web access is reserved for the dedicated `apk-researcher`; other agents must not browse directly.
+- Public web access is reserved for the bounded APK research worker path; normal analysis agents must not browse directly.
 
 ## Evidence rules
 
