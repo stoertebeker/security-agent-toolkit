@@ -91,6 +91,7 @@ The APK module also exposes bounded research controls:
 max_parallel_agents = 2
 research_max_questions = 3
 research_max_sources_per_question = 5
+research_max_report_words = 900
 ```
 
 APK research uses one additional, tightly bounded agent level:
@@ -101,7 +102,9 @@ apk-security
        -> apk-web-worker  (one narrow web question, steps: 5)
 ```
 
-`apk-security` cannot call the web worker directly. The researcher can call only the web worker, and the worker cannot spawn further agents. Web access is denied globally for the APK project and enabled only for `apk-web-worker`. OpenCode `subagent_depth=2` is used only for this bounded coordinator/worker pattern. Other modules default to depth 1. OpenCode's `steps` option limits agentic iterations and forces a summary when the budget is reached.
+`apk-security` cannot call the web worker directly. The researcher can call only the web worker, and the worker cannot spawn further agents. Web access is denied globally for the APK project and enabled only for `apk-web-worker`. OpenCode `subagent_depth=2` is used only for this bounded coordinator/worker pattern. Other modules default to depth 1.
+
+Research is deliberately **local-first**. Existing Java/Smali/XML/resources, metadata, hashes, certificate parsing, and narrow local analysis are used before creating a web question. Each public question gets exactly one canonical report under `reports/research/RQ-XX-....md`; `findings/research.md` is only a compact index and no second coordinator/batch report is required. Search snippets are discovery leads; material conclusions should use fetched primary sources when reasonably available.
 
 ## APK workflow
 
@@ -126,6 +129,7 @@ authorized = true
 max_parallel_agents = 2
 research_max_questions = 3
 research_max_sources_per_question = 5
+research_max_report_words = 900
 
 [apk]
 path = "input/app.apk"
@@ -133,13 +137,34 @@ path = "input/app.apk"
 
 The APK module is static-first. Dynamic Android testing is separately gated in `TARGET.toml` and can use an external ADB-connected device; no Android emulator is installed.
 
-Durable analysis state is stored under `findings/`, detailed delegated work under `reports/subagents/`, public research under `reports/research/`, and the final human-readable report at:
+### Hard-coded secrets and credentials
+
+APK preparation performs a deterministic credential/secret candidate scan after JADX/Apktool extraction. It searches textual Java/Smali/XML/resources/assets plus native-library strings for high-signal private-key, credential, token, URL-auth and sensitive literal patterns.
+
+The scan writes:
+
+```text
+reports/tool-output/secret-candidates.txt
+reports/tool-output/secret-candidates.json
+```
+
+Raw candidate values are intentionally not copied into these reports. Candidates contain local source location, rule/category, value length and a short SHA-256 fingerprint. `apk-secret-hunter` then triages them into real secrets/credentials, sensitive password-equivalents, public client configuration, certificates/trust material, test data, false positives, or items requiring validation. Pattern hits alone are never findings.
+
+Durable secret classification is maintained in:
+
+```text
+findings/secrets.md
+```
+
+### Reporting and follow-up research
+
+Durable analysis state is stored under `findings/`, detailed delegated work under `reports/subagents/`, one canonical public-research report per question under `reports/research/`, and the final human-readable report at:
 
 ```text
 reports/STATIC_SECURITY_REPORT.md
 ```
 
-After an initial analysis, `/research` performs bounded follow-up research only for unresolved public questions that could materially change severity, applicability, confidence or the next analysis step.
+After an initial analysis, `/research` performs bounded follow-up research only for unresolved public questions that survive the local-first gate and could materially change severity, applicability, confidence or the next analysis step.
 
 ## Firmware workflow
 
@@ -193,7 +218,7 @@ docs/ADDING_A_MODULE.md
 
 Modules are discovered automatically from `modules/<module>/module.toml`; there is no hardcoded registry. New dependencies belong in the central catalog. Every module template must expose `orchestration.max_parallel_agents`; do not hardcode a fixed parallel-agent count in prompts.
 
-Use nested subagents only for a deliberate bounded coordinator -> worker design with explicit task allowlists and finite step budgets.
+Use nested subagents only for a deliberate bounded coordinator -> worker design with explicit task allowlists and finite step budgets. Research modules should prefer local evidence first, cap source/report budgets, avoid duplicated summary artifacts, and keep public web access isolated from sensitive assessment data.
 
 Validate changes with:
 
@@ -210,6 +235,7 @@ Validate changes with:
 - Parallelism is configurable per project through `TARGET.toml`.
 - Default subagent depth is 1; bounded depth 2 is allowed only where it materially reduces context growth.
 - Findings are evidence-first and important candidates get independent validation.
-- Public research is narrow, source-backed and isolated from sensitive assessment data.
+- APK hard-coded-secret coverage is deterministic first and agent-triaged second.
+- Public research is local-first, narrow, source-backed, size-bounded and isolated from sensitive assessment data.
 - Project artifacts stay in generated local workspaces.
 - The toolkit repository remains free of project/customer/target data.
