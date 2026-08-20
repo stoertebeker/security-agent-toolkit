@@ -12,6 +12,13 @@ SUPPORTED = {
 }
 
 
+def validate_python(path: Path, errors: list[str]) -> None:
+    try:
+        compile(path.read_text(), str(path), "exec")
+    except Exception as exc:
+        errors.append(f"bad Python {path.name}: {exc}")
+
+
 def validate_module(root: Path, module: str):
     errors = []
     module_file = root / "modules" / module / "module.toml"
@@ -77,6 +84,11 @@ def validate_module(root: Path, module: str):
         for relative in apk_required:
             if not (template / relative).exists():
                 errors.append("APK template missing " + relative)
+
+        for relative in ("tools/apk_prepare.py", "tools/apk_secret_scan.py"):
+            path = template / relative
+            if path.exists():
+                validate_python(path, errors)
 
         orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
         for field, lower, upper in (
