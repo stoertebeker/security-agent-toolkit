@@ -1,23 +1,170 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SAT_HOME="${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}"
 export ROOT SAT_HOME PATH="$SAT_HOME/bin:$PATH"
+
 source "$ROOT/lib/platform.sh"
 source "$ROOT/lib/project.sh"
 source "$ROOT/lib/dependencies.sh"
-usage(){ echo 'Usage: ./toolkit {list|platform|doctor MODULE|install MODULE|init MODULE DEST|validate-module MODULE|validate|repo-guard}'; }
-need(){ [[ $# -ge $1 ]] || { usage >&2; exit 2; }; }
-modok(){ [[ -f "$ROOT/modules/$1/module.toml" ]] || { echo "Unknown module: $1" >&2; exit 2; }; }
+
+usage() {
+  cat <<'EOF'
+Security Agent Toolkit
+
+Usage:
+  ./toolkit <command> [arguments]
+
+Commands:
+  list
+      List all available security-analysis modules.
+
+  platform
+      Detect the current operating system/platform and verify that it is supported.
+
+  doctor <module>
+      Check core and module-specific dependencies without installing anything.
+
+  install <module>
+      Install OpenCode, the shared toolkit runtime, and the required dependencies
+      for exactly one module. Other modules are not installed.
+
+  init <module> <destination>
+      Create a new local analysis workspace from the selected module template.
+      The destination MUST be outside this Git repository.
+
+  validate-module <module>
+      Validate one module against the toolkit module contract.
+
+  validate
+      Validate all modules.
+
+  repo-guard
+      Check that the toolkit repository does not contain assessment/project data
+      such as APKs, firmware images, captures, real TARGET.toml files, reports,
+      findings, or extracted artifacts.
+
+Examples:
+  ./toolkit list
+  ./toolkit doctor apk
+  ./toolkit install apk
+  ./toolkit init apk ~/security-work/customer-app
+
+  ./toolkit doctor firmware
+  ./toolkit install firmware
+  ./toolkit init firmware ~/security-work/router-review
+
+  ./toolkit doctor api
+  ./toolkit install api
+  ./toolkit init api ~/security-work/customer-api
+
+Important:
+  This repository is only the toolkit. Real targets, credentials, reports,
+  findings, extracted files, and other assessment data must live in the local
+  workspace created by 'toolkit init', never in this Git checkout.
+
+Runtime location:
+  ~/.local/share/security-agent-toolkit
+
+Supported platforms:
+  Ubuntu 24.04 / 26.04
+  Debian 12 / 13
+  Kali Rolling
+  Parrot OS 7.x
+
+No emulation stack is installed. The toolkit is designed to work in LXC-style
+workers without QEMU, KVM, Docker, or firmware emulators.
+EOF
+}
+
+need() {
+  [[ $# -ge $1 ]] || {
+    echo "Missing required argument(s)." >&2
+    echo >&2
+    usage >&2
+    exit 2
+  }
+}
+
+modok() {
+  [[ -f "$ROOT/modules/$1/module.toml" ]] || {
+    echo "Unknown module: $1" >&2
+    echo "Available modules:" >&2
+    python3 "$ROOT/lib/manifest.py" list "$ROOT/modules" >&2 || true
+    exit 2
+  }
+}
+
 cmd="${1:-}"
 case "$cmd" in
- list) python3 "$ROOT/lib/manifest.py" list "$ROOT/modules";;
- platform) sat_require_supported_platform; sat_print_platform;;
- doctor) need 2 "$@"; modok "$2"; sat_require_supported_platform; echo Core; sat_doctor_dependency opencode; sat_doctor_dependency uv; echo Module; while read -r d; do sat_doctor_dependency "$d"; done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" all);;
- install) need 2 "$@"; modok "$2"; sat_require_supported_platform; sat_install_core; while read -r d; do sat_install_dependency "$d"; done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" required);;
- init) need 3 "$@"; modok "$2"; sat_init_project "$ROOT" "$2" "$3";;
- validate-module) need 2 "$@"; modok "$2"; python3 "$ROOT/lib/validate.py" module "$ROOT" "$2";;
- validate) python3 "$ROOT/lib/validate.py" all "$ROOT";;
- repo-guard) python3 "$ROOT/tests/repo_guard.py" "$ROOT";;
- *) usage; [[ -n "$cmd" ]] && exit 2 || true;;
+  list)
+    python3 "$ROOT/lib/manifest.py" list "$ROOT/modules"
+    ;;
+
+  platform)
+    sat_require_supported_platform
+    sat_print_platform
+    ;;
+
+  doctor)
+    need 2 "$@"
+    modok "$2"
+    sat_require_supported_platform
+    echo "Core dependencies"
+    sat_doctor_dependency opencode
+    sat_doctor_dependency uv
+    echo
+    echo "Module dependencies: $2"
+    while read -r dependency; do
+      sat_doctor_dependency "$dependency"
+    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" all)
+    ;;
+
+  install)
+    need 2 "$@"
+    modok "$2"
+    sat_require_supported_platform
+    echo "Installing core runtime and required dependencies for module: $2"
+    echo "Toolkit runtime: $SAT_HOME"
+    echo
+    sat_install_core
+    while read -r dependency; do
+      sat_install_dependency "$dependency"
+    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" required)
+    echo
+    echo "Installation completed for module: $2"
+    echo "Run './toolkit doctor $2' to verify the installation."
+    ;;
+
+  init)
+    need 3 "$@"
+    modok "$2"
+    sat_init_project "$ROOT" "$2" "$3"
+    ;;
+
+  validate-module)
+    need 2 "$@"
+    modok "$2"
+    python3 "$ROOT/lib/validate.py" module "$ROOT" "$2"
+    ;;
+
+  validate)
+    python3 "$ROOT/lib/validate.py" all "$ROOT"
+    ;;
+
+  repo-guard)
+    python3 "$ROOT/tests/repo_guard.py" "$ROOT"
+    ;;
+
+  ""|-h|--help|help)
+    usage
+    ;;
+
+  *)
+    echo "Unknown command: $cmd" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
 esac
