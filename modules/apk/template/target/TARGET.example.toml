@@ -7,8 +7,10 @@ authorized=false
 # This is enforced by the agent prompts; OpenCode currently has no native
 # max-concurrency scheduler setting. Recommended range: 1-8.
 max_parallel_agents=2
+# Bounded public-research defaults. Increase only for deliberately deeper runs.
 research_max_questions=3
 research_max_sources_per_question=5
+research_max_report_words=900
 
 [apk]
 path="input/app.apk"
