@@ -26,6 +26,8 @@ class Rule:
     value_group: int = 0
 
 
+# Specific/high-signal rules come before generic assignment rules so
+# de-duplication keeps the more useful classification for the same value.
 RULES = [
     Rule(
         "private_key_pem",
@@ -102,17 +104,15 @@ RULES = [
 TEXT_SUFFIXES = {
     ".java", ".kt", ".kts", ".smali", ".xml", ".json", ".properties",
     ".gradle", ".txt", ".conf", ".cfg", ".ini", ".yaml", ".yml",
-    ".html", ".htm", ".js", ".ts", ".pem", ".key", ".crt", ".cer",
-    ".md", ".csv",
+    ".html", ".htm", ".js", ".ts", ".pem", ".key", ".md", ".csv",
 }
 
 
-def load_config() -> dict:
+def load_config() -> None:
     with TARGET.open("rb") as handle:
         config = tomllib.load(handle)
     if not config.get("engagement", {}).get("authorized", False):
         raise SystemExit("[!] engagement.authorized=false")
-    return config
 
 
 def fingerprint(value: str) -> str:
@@ -137,20 +137,19 @@ def candidate_records(line: str, source: str, locator: int | str, source_kind: s
 
 
 def looks_textual(path: Path) -> bool:
-    if path.suffix.lower() in TEXT_SUFFIXES:
-        return True
     try:
-        sample = path.read_bytes()[:4096]
+        with path.open("rb") as handle:
+            sample = handle.read(4096)
     except OSError:
         return False
-    return b"\x00" not in sample
+    if b"\x00" in sample:
+        return False
+    return path.suffix.lower() in TEXT_SUFFIXES or bool(sample)
 
 
-def scan_text_file(path: Path, root: Path):
+def scan_text_file(path: Path):
+    records = []
     try:
-        if path.stat().st_size > MAX_TEXT_FILE_BYTES or not looks_textual(path):
-            return [], False
-        records = []
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             for line_number, line in enumerate(handle, 1):
                 records.extend(
@@ -163,9 +162,9 @@ def scan_text_file(path: Path, root: Path):
                 )
                 if len(records) >= MAX_CANDIDATES:
                     return records, True
-        return records, False
     except (OSError, ValueError):
         return [], False
+    return records, False
 
 
 def scan_native_strings(path: Path, strings_bin: str):
@@ -208,24 +207,32 @@ def main() -> int:
     truncated = False
     seen = set()
 
+    def add_record(record: dict) -> None:
+        # The same literal often appears under both a specific rule and the
+        # generic assignment rule. Keep the first (more specific) hit per file.
+        key = (record["source"], record["value_sha256_prefix"])
+        if key not in seen:
+            seen.add(key)
+            records.append(record)
+
     for scan_root in roots:
         if not scan_root.exists():
             continue
         for path in scan_root.rglob("*"):
             if not path.is_file() or path.suffix.lower() == ".so":
                 continue
-            found, hit_limit = scan_text_file(path, scan_root)
-            scanned_files += 1
-            if not found and (path.stat().st_size > MAX_TEXT_FILE_BYTES or not looks_textual(path)):
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue
+            if size > MAX_TEXT_FILE_BYTES or not looks_textual(path):
                 skipped_large_or_binary += 1
+                continue
+
+            scanned_files += 1
+            found, hit_limit = scan_text_file(path)
             for record in found:
-                key = (
-                    record["rule"], record["source"], record["locator"],
-                    record["value_sha256_prefix"],
-                )
-                if key not in seen:
-                    seen.add(key)
-                    records.append(record)
+                add_record(record)
             if hit_limit or len(records) >= MAX_CANDIDATES:
                 truncated = True
                 break
@@ -239,13 +246,7 @@ def main() -> int:
             for path in native_root.rglob("*.so"):
                 scanned_files += 1
                 for record in scan_native_strings(path, strings_bin):
-                    key = (
-                        record["rule"], record["source"], record["locator"],
-                        record["value_sha256_prefix"],
-                    )
-                    if key not in seen:
-                        seen.add(key)
-                        records.append(record)
+                    add_record(record)
                     if len(records) >= MAX_CANDIDATES:
                         truncated = True
                         break
