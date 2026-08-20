@@ -74,12 +74,15 @@ def validate_module(root: Path, module: str):
             "tools/apk_prepare.py",
             "tools/apk_secret_scan.py",
             "tools/apk_secret_group.py",
+            "tools/apk_native_baseline.py",
             ".opencode/agents/apk-secret-hunter.md",
             ".opencode/agents/apk-secret-review-worker.md",
+            ".opencode/agents/apk-native-reverser.md",
             ".opencode/agents/apk-researcher.md",
             ".opencode/agents/apk-web-worker.md",
             ".opencode/commands/research.md",
             ".opencode/commands/secrets.md",
+            ".opencode/commands/native.md",
             "findings/secrets.md",
             "findings/research.md",
         )
@@ -87,7 +90,12 @@ def validate_module(root: Path, module: str):
             if not (template / relative).exists():
                 errors.append("APK template missing " + relative)
 
-        for relative in ("tools/apk_prepare.py", "tools/apk_secret_scan.py", "tools/apk_secret_group.py"):
+        for relative in (
+            "tools/apk_prepare.py",
+            "tools/apk_secret_scan.py",
+            "tools/apk_secret_group.py",
+            "tools/apk_native_baseline.py",
+        ):
             path = template / relative
             if path.exists():
                 validate_python(path, errors)
