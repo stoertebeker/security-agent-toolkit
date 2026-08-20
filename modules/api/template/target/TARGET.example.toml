@@ -2,6 +2,11 @@
 name="API assessment"
 authorized=false
 
+[orchestration]
+# Maximum number of delegated agent tasks that may run concurrently.
+# This is agent-enforced because OpenCode currently has no native concurrency cap.
+max_parallel_agents=2
+
 [[scope.rules]]
 base_url="https://api.example.test/v1/"
 methods=["GET","HEAD","OPTIONS"]
