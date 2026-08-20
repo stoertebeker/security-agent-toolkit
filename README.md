@@ -23,11 +23,9 @@ The toolkit targets Debian/APT-family Linux systems and is designed for LXC-styl
 
 Current modules:
 
-- `apk` - Android APK security analysis
+- `apk` - Android APK/package security analysis
 - `api` - authorized API security testing
 - `firmware` - static embedded/firmware security analysis
-
-Modules are installed and initialized independently.
 
 ## First installation
 
@@ -75,14 +73,12 @@ The toolkit refuses to initialize a project inside its own checkout. Generated w
 
 Each local project has an `[orchestration]` section in `target/TARGET.toml`.
 
-Common setting:
-
 ```toml
 [orchestration]
 max_parallel_agents = 2
 ```
 
-This is the maximum number of delegated agent tasks that should execute concurrently. The default is 2 and the recommended range is 1-8. OpenCode currently has no native max-concurrency scheduler option, so the project agents enforce this policy from the target configuration.
+This is the maximum number of delegated agent tasks that should execute concurrently. OpenCode currently has no native global max-concurrency scheduler option, so project agents enforce the policy from target configuration.
 
 The APK module also exposes bounded research controls:
 
@@ -94,17 +90,17 @@ research_max_sources_per_question = 5
 research_max_report_words = 900
 ```
 
-APK research uses one additional, tightly bounded agent level:
+APK research uses a tightly bounded extra agent level:
 
 ```text
 apk-security
-  -> apk-researcher       (coordinator, steps: 8)
-       -> apk-web-worker  (one narrow web question, steps: 5)
+  -> apk-researcher
+       -> apk-web-worker
 ```
 
-`apk-security` cannot call the web worker directly. The researcher can call only the web worker, and the worker cannot spawn further agents. Web access is denied globally for the APK project and enabled only for `apk-web-worker`. OpenCode `subagent_depth=2` is used only for bounded coordinator/worker patterns. Other modules default to depth 1.
+Web access is denied globally for normal APK agents and enabled only for the narrow web worker.
 
-Research is deliberately **local-first**. Existing Java/Smali/XML/resources, metadata, hashes, certificate parsing, and narrow local analysis are used before creating a web question. Each public question gets exactly one canonical report under `reports/research/RQ-XX-....md`; `findings/research.md` is only a compact index and no second coordinator/batch report is required. Search snippets are discovery leads; material conclusions should use fetched primary sources when reasonably available.
+Research is **local-first**. Every delegated research question must carry 2-5 concrete non-sensitive local facts, why the question matters, and the exact external fact still needed. The web worker performs one focused discovery search and then fetches/reads the strongest primary source before broadening search. Search snippets remain `SOURCE_LEAD_ONLY` and cannot change findings.
 
 ## APK workflow
 
@@ -149,31 +145,34 @@ adb_serial = ""
 allow_frida = false
 ```
 
-The APK module is static-first. Dynamic Android testing is separately gated in `TARGET.toml` and can use an external ADB-connected device; no Android emulator is installed.
+The module is static-first. Preparation supports a normal APK and supported package containers such as XAPK. When preparation produces a base APK plus splits, agents treat them as one application and include split code/resources/native libraries in coverage.
 
-### Hard-coded secrets, credentials, encodings, and hashes
+### Hard-coded secrets, credentials, encodings and hashes
 
-APK preparation performs deterministic secret/material preprocessing after JADX/Apktool extraction.
-
-The scanner searches textual Java/Smali/XML/resources/assets plus native-library strings for high-signal private-key, credential, token, URL-auth, sensitive literal, structured hash/KDF, and related material. It also performs bounded local percent/hex/base64/base64url decoding and cautious hash/KDF format analysis when enabled.
-
-The scanner writes redacted artifacts:
+Preparation creates a deterministic raw candidate set. **The LLM workflow does not review that raw array.** It is first filtered and semantically grouped:
 
 ```text
-reports/tool-output/secret-candidates.txt
-reports/tool-output/secret-candidates.json
+secret-candidates.json
+        |
+        v
+apk_secret_group.py
+        |
+        v
+secret-groups.json
+        |
+        v
+apk-secret-hunter -> bounded review workers
 ```
 
-Candidate values are then strictly format-filtered and semantically grouped by `tools/apk_secret_group.py`. Repeated values, JADX/Apktool duplicates, and localized Android string resources are collapsed before AI review. The grouping artifacts are:
+Grouping removes structurally invalid crypt-prefix noise, collapses repeated values, deduplicates decompiler copies, and groups localized Android resources by resource key before AI plausibility review.
 
-```text
-reports/tool-output/secret-groups.txt
-reports/tool-output/secret-groups.json
-```
+The grouped taxonomy distinguishes:
+- `CONFIRMED_SECRET_OR_CREDENTIAL` for actually confidential/privileged reusable material;
+- `EXPOSED_CLIENT_SIGNING_MATERIAL` for client-shipped signing material whose server trust/confidentiality semantics are conditional;
+- `CLIENT_SDK_AUTH_MATERIAL` for mobile-SDK integration authentication material whose provider-side privilege/reusability is conditional;
+- `PUBLIC_CLIENT_CONFIGURATION` and other runtime/hash/encoding/identifier/test/false-positive classes.
 
-Deterministic priority is only an ordering hint. `apk-secret-hunter` delegates bounded batches to `apk-secret-review-worker`, which reviews every semantic group using a small number of representative local locations and assigns plausibility, final classification, confidence, evidence, and follow-up.
-
-Typical final classes distinguish real reusable credentials/private material from public client configuration, certificates/trust anchors, non-secret digests/identifiers, localized UI resources, dependency constants, test/sample data, reversible encodings, ambiguous hash material, and false positives. Pattern hits and hash-shape guesses are never findings by themselves.
+A field named `secret`, `APPSECRET` or `clientSecret` is not automatically a confidential backend credential.
 
 When working in a protected environment, plaintext retention can be explicitly enabled:
 
@@ -188,71 +187,95 @@ ai_triage_batch_size = 20
 ai_representative_locations = 3
 ```
 
-Exact matched and printable decoded values are then confined to:
+Exact matched and printable decoded values are confined to:
 
 ```text
 reports/sensitive/
 ```
 
-The toolkit attempts restrictive permissions for that directory/files. Normal findings, consolidated reports, agent summaries, and public research remain redacted even when plaintext retention is enabled.
+Normal findings, consolidated reports, agent summaries and public research remain redacted. Hash/KDF analysis may identify structured formats or cautious Hashcat mode hints for later operator use. Bare digest lengths remain ambiguous unless implementation context identifies the algorithm. The workflow does not crack hashes automatically.
 
-Hash/KDF analysis may identify structured formats or cautious candidate Hashcat modes for later operator use. Bare hexadecimal digest lengths remain ambiguous unless local implementation context identifies the algorithm. The APK workflow does **not** run password/hash cracking automatically.
-
-The canonical normal triage report is:
-
-```text
-reports/subagents/secrets-review.md
-```
-
-Durable secret classification is maintained in:
-
-```text
-findings/secrets.md
-```
-
-Inside OpenCode, run:
+Inside OpenCode:
 
 ```text
 /secrets
 ```
 
-to run or refresh only the deterministic grouping and AI plausibility triage without repeating broad static analysis or public research.
+refreshes deterministic grouping and bounded AI plausibility triage without repeating broad analysis.
+
+### Native/JNI baseline
+
+The APK module uses a cheap deterministic native baseline before deeper reverse engineering:
+
+```bash
+python3 tools/apk_native_baseline.py
+```
+
+It recursively covers `.so` files under `extracted/apktool/`, including decoded ABI/split trees. The baseline records architecture, selected ELF hardening properties, JNI exports, dangerous-import leads and redacted native secret-string leads.
+
+Baseline indicators are review leads, not vulnerabilities. `apk-native-reverser` and Ghidra are reserved for app-relevant, reachable or otherwise plausible security-sensitive native paths rather than every third-party library.
+
+Inside OpenCode:
+
+```text
+/native
+```
+
+refreshes baseline/native coverage and performs focused follow-up without repeating the whole assessment.
 
 ### Reporting and follow-up research
 
-Durable analysis state is stored under `findings/`, detailed delegated work under `reports/subagents/`, one canonical public-research report per question under `reports/research/`, and the final human-readable report at:
+Durable analysis state lives under `findings/`, delegated detail under `reports/subagents/`, one canonical public-research report per question under `reports/research/`, and the final report at:
 
 ```text
 reports/STATIC_SECURITY_REPORT.md
 ```
 
-After an initial analysis, `/research` performs bounded follow-up research only for unresolved public questions that survive the local-first gate and could materially change severity, applicability, confidence or the next analysis step. If local evidence answers the outstanding questions, `/research` may correctly perform no web research at all and instead use focused local validation.
+After initial analysis, `/research` performs bounded follow-up only for unresolved public questions that survive the local-first gate. If local evidence answers the outstanding question, web research may correctly be skipped.
+
+Each research worker receives an explicit packet:
+
+```text
+RQ-ID / narrow question
+Why it matters
+Local facts: 2-5 concrete non-sensitive facts
+External fact needed
+Source/report budgets
+```
+
+The worker should discover once, fetch/read the strongest primary source, try at most one alternate primary page if needed, and only then broaden search. An unfetched decisive source remains `SOURCE_LEAD_ONLY`.
+
+Detailed APK pipeline contracts and targeted regression commands are documented in:
+
+```text
+docs/APK_ANALYSIS_PIPELINE.md
+```
 
 ### Fresh APK end-to-end acceptance test
 
-For a clean module test, use a new workspace and a different authorized APK. Do not copy extracted artifacts or findings from an older assessment.
+For a clean module test, use a new workspace and a different authorized application. Do not copy extracted artifacts or findings from an older assessment.
 
 Expected sequence:
 
 ```text
 toolkit init apk
   -> configure TARGET.toml
-  -> place input/app.apk
+  -> place package input
   -> tools/apk_prepare.py
-       -> file/AAPT/apksigner
+       -> metadata/signature
        -> JADX + Apktool
        -> deterministic secret/material scan
   -> start.sh
-       -> primary static analysis
-       -> grouped AI secret plausibility triage
+       -> attack-surface/static analysis
+       -> strict group-first secret triage
+       -> deterministic native baseline
+       -> focused native review when justified
        -> durable findings/coverage/provenance
        -> reports/STATIC_SECURITY_REPORT.md
   -> /research
        -> local-first unresolved-question review
-       -> bounded web research only when still useful
+       -> bounded fetch-first web research only when useful
 ```
-
-A successful acceptance test should leave no required structured file as an empty stub, should record used/skipped tooling and degraded coverage honestly, should keep raw sensitive values under `reports/sensitive/` only when explicitly enabled, and should preserve the configured parallel-agent ceiling.
 
 ## Firmware workflow
 
@@ -278,7 +301,7 @@ nano target/TARGET.toml
 ./start.sh
 ```
 
-The API module stores authorization metadata, explicit URL-prefix scope, allowed HTTP methods, and optional test credentials only in the **local project workspace**. Its request wrapper enforces the configured scope and does not automatically follow HTTP redirects.
+The API module stores authorization metadata, explicit URL-prefix scope, allowed HTTP methods, and optional test credentials only in the local project workspace. Its request wrapper enforces configured scope and does not automatically follow HTTP redirects.
 
 ## Toolkit commands
 
@@ -293,19 +316,9 @@ The API module stores authorization metadata, explicit URL-prefix scope, allowed
 ./toolkit repo-guard
 ```
 
-`./toolkit` or `./toolkit --help` prints a longer explanation and examples.
-
 ## Repository safety
 
 The repository intentionally contains no real assessment data. `.gitignore` and `./toolkit repo-guard` provide additional safeguards against accidentally adding common target and artifact types.
-
-Run:
-
-```bash
-./toolkit repo-guard
-```
-
-before publishing changes if you have been developing new modules locally.
 
 ## Developing a new module
 
@@ -317,11 +330,7 @@ docs/ADDING_A_MODULE.md
 AGENTS.md
 ```
 
-A module is discovered automatically from `modules/<module>/module.toml`; there is no hardcoded central list of module names.
-
-When adding a dependency that does not yet exist, also extend the central dependency catalog and ensure it has a valid installation/check strategy for supported platforms.
-
-The repository contains a dedicated OpenCode `module-developer` agent whose job is to keep module structure, dependency registration, templates, documentation, tests, project isolation, and shared security invariants consistent.
+A module is discovered automatically from `modules/<module>/module.toml`; there is no hardcoded central list of module names. New dependencies belong in the central dependency catalog.
 
 Validate development changes with:
 
@@ -333,15 +342,14 @@ Validate development changes with:
 
 ## Design principles
 
-Across all modules:
-
 - OpenCode is the orchestration layer.
 - Primary contexts stay small; bulky detail belongs in project files and delegated sessions.
 - Parallelism is configurable per project through `TARGET.toml`.
 - Default subagent depth is 1; bounded depth 2 is allowed only where it materially reduces parent-context growth.
 - Findings are evidence-first and important candidates get independent validation.
-- APK hard-coded-secret coverage is deterministic first, semantic-grouped second, and AI-plausibility-triaged third.
-- Public research is local-first, narrow, source-backed, size-bounded, and isolated from sensitive assessment data.
+- APK hard-coded material coverage is deterministic scan -> strict semantic grouping -> bounded AI plausibility triage.
+- Native coverage is deterministic baseline -> focused deeper reverse engineering only where justified.
+- Public research is local-first, local-facts-grounded, fetch-first, bounded and isolated from sensitive assessment data.
 - Sensitive plaintext retention is explicit opt-in and remains outside normal/public reporting paths.
 - Project artifacts stay in generated local workspaces.
 - The toolkit repository remains free of project/customer/target data.
