@@ -73,7 +73,9 @@ def validate_module(root: Path, module: str):
         apk_required = (
             "tools/apk_prepare.py",
             "tools/apk_secret_scan.py",
+            "tools/apk_secret_group.py",
             ".opencode/agents/apk-secret-hunter.md",
+            ".opencode/agents/apk-secret-review-worker.md",
             ".opencode/agents/apk-researcher.md",
             ".opencode/agents/apk-web-worker.md",
             ".opencode/commands/research.md",
@@ -85,7 +87,7 @@ def validate_module(root: Path, module: str):
             if not (template / relative).exists():
                 errors.append("APK template missing " + relative)
 
-        for relative in ("tools/apk_prepare.py", "tools/apk_secret_scan.py"):
+        for relative in ("tools/apk_prepare.py", "tools/apk_secret_scan.py", "tools/apk_secret_group.py"):
             path = template / relative
             if path.exists():
                 validate_python(path, errors)
@@ -103,12 +105,17 @@ def validate_module(root: Path, module: str):
                 )
 
         secret_cfg = target.get("secrets", {}) if isinstance(target, dict) else {}
-        for field in ("store_plaintext", "analyze_encodings", "analyze_hashes"):
+        for field in ("store_plaintext", "analyze_encodings", "analyze_hashes", "ai_plausibility_triage"):
             if not isinstance(secret_cfg.get(field), bool):
                 errors.append(f"APK TARGET.example.toml must define secrets.{field} as boolean")
-        depth_value = secret_cfg.get("max_decode_depth")
-        if not isinstance(depth_value, int) or not 0 <= depth_value <= 3:
-            errors.append("APK TARGET.example.toml must define secrets.max_decode_depth in range 0..3")
+        for field, lower, upper in (
+            ("max_decode_depth", 0, 3),
+            ("ai_triage_batch_size", 5, 50),
+            ("ai_representative_locations", 1, 5),
+        ):
+            value = secret_cfg.get(field)
+            if not isinstance(value, int) or not lower <= value <= upper:
+                errors.append(f"APK TARGET.example.toml must define secrets.{field} in range {lower}..{upper}")
 
     if set(manifest.get("platforms", {}).get("supported", [])) != SUPPORTED:
         errors.append("platform set mismatch")
