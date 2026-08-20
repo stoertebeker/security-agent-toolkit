@@ -2,9 +2,11 @@ Analyze the authorized APK configured in `target/TARGET.toml`.
 
 If usable preparation output already exists under `extracted/jadx/`, `extracted/apktool/` and `reports/tool-output/` for the current APK, reuse it instead of repeating expensive decompilation. Otherwise run `tools/apk_prepare.py`.
 
-Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small and use at most two subagents concurrently.
+Read `[orchestration]` from TARGET.toml. Respect `max_parallel_agents` for concurrently executing delegated tasks, defaulting to 2 when absent.
 
-Use targeted public research when a concrete external fact could materially change severity, applicability or the next analysis step. First record the narrow question and local evidence in `findings/research.md`, then delegate it to `apk-researcher`. Detailed source notes belong under `reports/research/`. Public research never replaces local validation, and important research-backed conclusions should be independently validated.
+Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small.
+
+Use targeted public research when a concrete external fact could materially change severity, applicability or the next analysis step. Respect `research_max_questions` and `research_max_sources_per_question` from TARGET.toml, defaulting to 3 and 5. First record the narrow question and local evidence in `findings/research.md`, then delegate the bounded batch to `apk-researcher`. Detailed source notes belong under `reports/research/`. Public research never replaces local validation, and important research-backed conclusions should be independently validated.
 
 Maintain the structured workspace records throughout the run:
 - `findings/inventory.md`
