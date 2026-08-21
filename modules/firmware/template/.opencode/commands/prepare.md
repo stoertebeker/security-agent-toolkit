@@ -10,6 +10,7 @@ Prepare the authorized firmware deterministically. Do not perform broad vulnerab
 ```text
 python3 tools/firmware_prepare.py
 python3 tools/firmware_baseline.py
+python3 tools/firmware_component_fingerprint.py
 python3 tools/firmware_secret_scan.py
 python3 tools/firmware_secret_group.py
 ```
@@ -19,8 +20,10 @@ python3 tools/firmware_secret_group.py
 - `reports/tool-output/firmware-baseline.txt`
 - `reports/tool-output/firmware-services.txt`
 - `reports/tool-output/firmware-update-leads.txt`
+- `reports/tool-output/firmware-components.txt`
+- `reports/tool-output/firmware-component-fingerprints.txt`
 - `reports/tool-output/firmware-secret-groups.txt`
 
-4. Update `findings/inventory.md` and the preparation/baseline/secret coverage portions of `findings/coverage.md`. Do not invent service reachability or vulnerabilities.
+4. Update `findings/inventory.md` and the preparation/baseline/secret/component coverage portions of `findings/coverage.md`. Do not invent service reachability, version applicability or vulnerabilities.
 5. Record any degraded extraction, rootfs ambiguity, absolute/escaping symlinks, opaque regions, missing extractor dependencies, or baseline parse failures.
-6. Give the operator a compact preparation summary: input/hash, extraction status, primary rootfs, file/ELF/service/update/group counts, and the highest-value next review areas.
+6. Give the operator a compact preparation summary: input/hash, extraction status, primary rootfs, file/ELF/service/update/group/component counts, and the highest-value next review areas.
