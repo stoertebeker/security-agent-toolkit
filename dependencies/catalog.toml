@@ -40,8 +40,24 @@ packages = ["yara"]
 
 [dependencies.firmware-extractors]
 kind = "apt"
-check = "command -v unsquashfs && command -v 7z && command -v zstd && command -v lz4"
-packages = ["squashfs-tools", "p7zip-full", "zstd", "lz4", "lzop", "lziprecover", "mtd-utils", "device-tree-compiler", "e2fsprogs", "cpio", "xz-utils"]
+check = "command -v unsquashfs && command -v 7z && command -v zstd && command -v lz4 && command -v debugfs && command -v simg2img && command -v unar && command -v fsck.erofs && command -v partclone.restore"
+packages = [
+  "squashfs-tools",
+  "p7zip-full",
+  "zstd",
+  "lz4",
+  "lzop",
+  "lziprecover",
+  "mtd-utils",
+  "device-tree-compiler",
+  "e2fsprogs",
+  "cpio",
+  "xz-utils",
+  "android-sdk-libsparse-utils",
+  "unar",
+  "erofs-utils",
+  "partclone"
+]
 
 [dependencies.android-build-tools]
 kind = "apt"
