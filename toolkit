@@ -24,11 +24,12 @@ Commands:
       Detect the current operating system/platform and verify that it is supported.
 
   doctor <module>
-      Check core and module-specific dependencies without installing anything.
+      Check core plus required/optional module dependencies without installing.
 
-  install <module>
-      Install OpenCode, the shared toolkit runtime, and the required dependencies
-      for exactly one module. Other modules are not installed.
+  install <module> [--with-optional]
+      Install OpenCode, the shared runtime, and required dependencies for one
+      module. --with-optional also installs module extras such as the managed
+      Android Emulator used by APK dynamic analysis.
 
   init <module> <destination>
       Create a new local analysis workspace from the selected module template.
@@ -41,40 +42,27 @@ Commands:
       Validate all modules.
 
   repo-guard
-      Check that the toolkit repository does not contain assessment/project data
-      such as APKs, firmware images, captures, real TARGET.toml files, reports,
-      findings, or extracted artifacts.
+      Check that the toolkit repository does not contain assessment/project data.
 
 Examples:
-  ./toolkit list
-  ./toolkit doctor apk
   ./toolkit install apk
+  ./toolkit install apk --with-optional
   ./toolkit init apk ~/security-work/customer-app
-
-  ./toolkit doctor firmware
-  ./toolkit install firmware
-  ./toolkit init firmware ~/security-work/router-review
-
-  ./toolkit doctor api
-  ./toolkit install api
-  ./toolkit init api ~/security-work/customer-api
-
-Important:
-  This repository is only the toolkit. Real targets, credentials, reports,
-  findings, extracted files, and other assessment data must live in the local
-  workspace created by 'toolkit init', never in this Git checkout.
 
 Runtime location:
   ~/.local/share/security-agent-toolkit
 
-Supported platforms:
+Supported platforms for static modules:
   Ubuntu 24.04 / 26.04
   Debian 12 / 13
   Kali Rolling
   Parrot OS 7.x
 
-No emulation stack is installed. The toolkit is designed to work in LXC-style
-workers without QEMU, KVM, Docker, or firmware emulators.
+APK dynamic analysis can optionally use a toolkit-managed Android Emulator. It
+never assumes KVM is available: project setup probes bare metal/VM/container
+capabilities and selects accelerated, software-emulated, or unavailable mode.
+The toolkit does not reconfigure the host hypervisor or pass /dev/kvm into a
+container on the user's behalf.
 EOF
 }
 
@@ -125,13 +113,20 @@ case "$cmd" in
     need 2 "$@"
     modok "$2"
     sat_require_supported_platform
-    echo "Installing core runtime and required dependencies for module: $2"
+    dep_mode="required"
+    if [[ "${3:-}" == "--with-optional" ]]; then
+      dep_mode="all"
+    elif [[ -n "${3:-}" ]]; then
+      echo "Unknown install option: ${3}" >&2
+      exit 2
+    fi
+    echo "Installing core runtime and $dep_mode dependencies for module: $2"
     echo "Toolkit runtime: $SAT_HOME"
     echo
     sat_install_core
     while read -r dependency; do
       sat_install_dependency "$dependency"
-    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" required)
+    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" "$dep_mode")
     echo
     echo "Installation completed for module: $2"
     echo "Run './toolkit doctor $2' to verify the installation."
