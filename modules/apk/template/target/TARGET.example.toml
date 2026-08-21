@@ -4,40 +4,53 @@ authorized=false
 
 [orchestration]
 # Maximum number of delegated agent tasks that may run concurrently.
-# This is enforced by the agent prompts; OpenCode currently has no native
-# max-concurrency scheduler setting. Recommended range: 1-8.
 max_parallel_agents=2
-# Bounded public-research defaults. Increase only for deliberately deeper runs.
 research_max_questions=3
 research_max_sources_per_question=5
 research_max_report_words=900
 
 [secrets]
-# Keep false for ordinary projects. In a protected workspace, true stores exact
-# matched/decoded values under reports/sensitive/ with restrictive permissions.
 store_plaintext=false
-# Try percent/hex/base64/base64url decoding locally. No web requests are used.
 analyze_encodings=true
-# Guess structured hash/KDF formats and cautious candidates for bare digests.
-# The toolkit never cracks hashes automatically.
 analyze_hashes=true
-# Maximum recursive local decode layers. Recommended range: 0-3.
 max_decode_depth=2
-# AI plausibility triage works on semantic groups rather than every raw hit.
-# Repeated values are grouped together; localized Android strings are grouped
-# by resource key across locales and duplicate decompiler outputs.
 ai_plausibility_triage=true
-# Number of semantic groups assigned to one short-lived local review worker.
 ai_triage_batch_size=20
-# Inspect at most this many representative occurrences/usages per semantic group.
 ai_representative_locations=3
 
 [apk]
-# Supports a normal APK or an XAPK container. XAPK is safely unpacked by the
-# toolkit; the base APK and all split APKs are inspected as one application.
+# Supports a normal APK or XAPK container.
 path="input/app.apk"
 
 [dynamic]
+# Dynamic analysis is toolkit-contained and uses only the managed Android
+# Emulator. No external Android device is required or assumed.
 enabled=false
-adb_serial=""
+# auto: choose the best locally possible emulator mode; none: disable runtime.
+backend="auto"
+# 0 chooses the app target SDK when possible. Explicit values may be used for
+# reproducible compatibility testing.
+api_level=36
+# auto prefers rootable AOSP/default images and falls back to google_apis when
+# necessary. Play Store images are intentionally not selected automatically.
+image_tag="auto"
+# When KVM is unavailable (for example LXC without /dev/kvm, a VM without nested
+# virtualization, or ARM target code on an x86_64 host), permit -accel off.
+# This can be dramatically slower but keeps a toolkit-only fallback available.
+allow_software_emulation=true
+headless=true
+wipe_data_on_start=true
+# Default false so permission prompts and denial behavior remain observable.
+grant_runtime_permissions=false
+# AOSP/default emulator images normally permit adb root; capability is verified
+# after boot and recorded rather than assumed.
+request_root=true
 allow_frida=false
+# Active validation means emulator-local interaction such as invoking exported
+# components/deep links. It never authorizes crafted backend/API attacks.
+allow_active_validation=false
+memory_mb=4096
+cores=4
+boot_timeout_seconds=600
+observation_seconds=15
+emulator_port=5554
