@@ -14,7 +14,8 @@ PREP = REPORT / "firmware-preparation.json"
 
 MAX_TEXT_SIZE = 2 * 1024 * 1024
 MAX_SERVICE_LEADS = 250
-MAX_UPDATE_LEADS = 160
+MAX_UPDATE_LEADS = 120
+MAX_UPDATE_UI_PATHS = 120
 
 KNOWN_DAEMONS = {
     "uhttpd", "httpd", "httpsd", "lighttpd", "nginx", "boa", "mini_httpd", "thttpd",
@@ -51,7 +52,12 @@ UPDATE_STRONG_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("rsa-verify", re.compile(r"\brsa[ _-]?verify\b", re.I)),
     ("sha256sum", re.compile(r"\bsha256sum\b", re.I)),
 ]
-UPDATE_CONTEXT_RE = re.compile(r"\b(?:firmware|fw|upgrade|update|flash|mtd|image)\b", re.I)
+UPDATE_MECHANISM_LABELS = {
+    "sysupgrade", "firmware-image", "fwupgrade", "mtd-write", "nandwrite", "flashcp",
+    "swupdate", "rauc", "fw-env", "ubiupdatevol", "verify-signature", "openssl-dgst",
+    "rsa-verify", "sha256sum",
+}
+UPDATE_CONTEXT_RE = re.compile(r"\b(?:firmware|upgrade|update|flash|mtd|image)\b", re.I)
 UPDATE_CRYPTO_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("signature", re.compile(r"\bsignature\b", re.I)),
     ("public-key", re.compile(r"\bpublic[ _-]?key\b", re.I)),
@@ -64,8 +70,20 @@ NETWORK_CONFIG_PATTERNS = [
     re.compile(r"\bport\s*[:=]\s*\d{1,5}\b", re.I),
     re.compile(r"(?:^|\s)-p\s+\d{1,5}(?:\s|$)", re.I),
 ]
+STOP_COMMAND_RE = re.compile(
+    r"(?:^|[;&|]\s*)(?:killall|pkill|kill)\b|"
+    r"\bstart-stop-daemon\b[^\n]*\b--stop\b|"
+    r"\bservice\s+\S+\s+stop\b",
+    re.I,
+)
+START_COMMAND_RE = re.compile(
+    r"\bstart-stop-daemon\b[^\n]*\b--start\b|"
+    r"\bservice\s+\S+\s+start\b",
+    re.I,
+)
 
 WEB_EXTENSIONS = {".cgi", ".lua", ".php", ".asp", ".aspx", ".sh", ".js", ".html", ".htm"}
+UI_ONLY_EXTENSIONS = {".html", ".htm", ".css", ".js"}
 PACKAGE_DB_PATHS = {
     "usr/lib/opkg/status": "opkg",
     "var/lib/dpkg/status": "dpkg",
@@ -292,11 +310,22 @@ def service_leads(path: Path, text: str) -> list[dict]:
             if re.search(rf"(?<![A-Za-z0-9_.+-])(?:[^\s/]+/)?{re.escape(name)}(?![A-Za-z0-9_.+-])", lower)
         )
         network_config = any(pattern.search(stripped) for pattern in NETWORK_CONFIG_PATTERNS)
-        if matched or network_config:
-            leads.append({
-                "path": rel(path), "line": number, "daemons": matched,
-                "kind": "daemon" if matched else "network-config", "text": redact_line(stripped),
-            })
+        if not matched and not network_config:
+            continue
+
+        if matched and STOP_COMMAND_RE.search(stripped):
+            kind = "stop"
+        elif matched and START_COMMAND_RE.search(stripped):
+            kind = "start"
+        elif matched:
+            kind = "start-candidate"
+        else:
+            kind = "network-config"
+
+        leads.append({
+            "path": rel(path), "line": number, "daemons": matched,
+            "kind": kind, "text": redact_line(stripped),
+        })
     return leads
 
 
@@ -312,32 +341,61 @@ def update_noise_path(relative: str) -> bool:
     return False
 
 
-def update_path_hint(relative: str) -> bool:
+def update_ui_only(relative: str) -> bool:
+    lower = relative.lower()
+    suffix = Path(lower).suffix
+    return (lower.startswith("www/") or lower.startswith("var/www/")) and suffix in UI_ONLY_EXTENSIONS
+
+
+def update_path_kind(relative: str) -> str | None:
     lower = relative.lower()
     name = Path(lower).name
-    return bool(
-        re.search(r"(?:^|[._-])(?:firmware|fw)(?:[._-]?(?:upgrade|update))?(?:[._-]|$)", name)
+    strong_name = bool(
+        re.search(r"(?:^|[._-])firmware(?:[._-]|$)", name)
         or re.search(r"(?:^|[._-])(?:upgrade|sysupgrade|flash)(?:[._-]|$)", name)
-        or any(part in {"upgrade", "update", "firmware"} for part in Path(lower).parts)
+        or name.startswith("upg_")
+        or re.match(r"ver_(?:ap_)?fw_", name)
     )
+    strong_dir = any(part in {"upgrade", "update", "firmware"} for part in Path(lower).parts)
+    if not (strong_name or strong_dir):
+        return None
+    return "ui" if update_ui_only(relative) else "mechanism"
 
 
-def update_leads(path: Path, relative: str, text: str) -> list[dict]:
+def update_leads(path: Path, relative: str, text: str) -> tuple[list[dict], list[dict]]:
     if update_noise_path(relative):
-        return []
-    result: list[dict] = []
-    path_hint = update_path_hint(relative)
-    if path_hint:
-        result.append({"path": rel(path), "line": 0, "keywords": ["update-path"], "text": f"update-relevant path: {relative}"})
+        return [], []
+
+    security: list[dict] = []
+    ui: list[dict] = []
+    path_kind = update_path_kind(relative)
+    if path_kind == "mechanism":
+        security.append({
+            "path": rel(path), "line": 0, "keywords": ["update-path"],
+            "text": f"update-relevant mechanism path: {relative}",
+        })
+    elif path_kind == "ui":
+        ui.append({
+            "path": rel(path), "line": 0, "keywords": ["update-ui-path"],
+            "text": f"update-related UI path: {relative}",
+        })
 
     cert_like = Path(relative).suffix.lower() in {".crt", ".cer", ".pem", ".key"}
+    ui_only = update_ui_only(relative)
+
     for number, line in enumerate(text.splitlines(), 1):
         matches = [label for label, pattern in UPDATE_STRONG_PATTERNS if pattern.search(line)]
-        if not matches and (path_hint or UPDATE_CONTEXT_RE.search(line)) and not cert_like:
+        if ui_only:
+            matches = [label for label in matches if label in UPDATE_MECHANISM_LABELS]
+        if not matches and (path_kind == "mechanism" or UPDATE_CONTEXT_RE.search(line)) and not cert_like and not ui_only:
             matches = [label for label, pattern in UPDATE_CRYPTO_PATTERNS if pattern.search(line)]
         if matches:
-            result.append({"path": rel(path), "line": number, "keywords": matches[:5], "text": redact_line(line)})
-    return result
+            security.append({
+                "path": rel(path), "line": number,
+                "keywords": matches[:5], "text": redact_line(line),
+            })
+
+    return security, ui
 
 
 def lead_mentions_binary(basename: str, leads: list[dict]) -> bool:
@@ -375,6 +433,7 @@ def main() -> int:
     elfs: list[dict] = []
     services: list[dict] = []
     updates: list[dict] = []
+    update_ui_paths: list[dict] = []
     passwd: list[dict] = []
     shadow: list[dict] = []
     packages: list[dict] = []
@@ -448,8 +507,13 @@ def main() -> int:
 
             if service_path(relative) and len(services) < MAX_SERVICE_LEADS:
                 services.extend(service_leads(path, text)[: max(0, MAX_SERVICE_LEADS - len(services))])
-            if len(updates) < MAX_UPDATE_LEADS:
-                updates.extend(update_leads(path, relative, text)[: max(0, MAX_UPDATE_LEADS - len(updates))])
+
+            if len(updates) < MAX_UPDATE_LEADS or len(update_ui_paths) < MAX_UPDATE_UI_PATHS:
+                security, ui = update_leads(path, relative, text)
+                if len(updates) < MAX_UPDATE_LEADS:
+                    updates.extend(security[: max(0, MAX_UPDATE_LEADS - len(updates))])
+                if len(update_ui_paths) < MAX_UPDATE_UI_PATHS:
+                    update_ui_paths.extend(ui[: max(0, MAX_UPDATE_UI_PATHS - len(update_ui_paths))])
 
     hardening = {
         "elf_count": len(elfs),
@@ -465,12 +529,16 @@ def main() -> int:
         "network_import_lead_binaries": sum(1 for item in elfs if item.get("network_imports")),
     }
 
+    active_services = [lead for lead in services if lead.get("kind") != "stop"]
+    stop_services = [lead for lead in services if lead.get("kind") == "stop"]
+    active_daemons = {daemon for lead in active_services for daemon in lead.get("daemons", [])}
+
     binary_leads = []
     for item in elfs:
         if item.get("error"):
             continue
         basename = Path(item["path"]).name.lower()
-        service_corr = basename in {daemon for lead in services for daemon in lead.get("daemons", [])} or lead_mentions_binary(basename, services)
+        service_corr = basename in active_daemons or lead_mentions_binary(basename, active_services)
         update_corr = lead_mentions_binary(basename, updates)
         semantic_reason = bool(item.get("suid") or service_corr or update_corr or item.get("rpath_runpath"))
         if shared_library(item["path"]) and not (service_corr or update_corr):
@@ -503,18 +571,27 @@ def main() -> int:
     binary_leads.sort(key=lambda item: (-item["score"], item["path"]))
 
     baseline = {
-        "schema_version": 4,
-        "rootfs": rel(rootfs), "preparation_coverage": prep.get("coverage"),
+        "schema_version": 5,
+        "rootfs": rel(rootfs),
+        "preparation_coverage": prep.get("coverage"),
         "analysis_artifact_dirs_pruned": artifact_dirs_pruned,
         "counts": {
             "files": file_count, "directories": dir_count, "symlinks": symlink_count,
             "executables": executable_count, "scripts": script_count, "elfs": len(elfs),
             "web_files": len(web_files), "packages": len(packages),
         },
-        "users": passwd, "shadow_accounts": shadow,
-        "suid_files": suid_files, "sgid_files": sgid_files,
-        "world_writable_files": world_writable[:1000], "webroots": sorted(webroots),
-        "hardening": hardening, "service_lead_count": len(services), "update_lead_count": len(updates),
+        "users": passwd,
+        "shadow_accounts": shadow,
+        "suid_files": suid_files,
+        "sgid_files": sgid_files,
+        "world_writable_files": world_writable[:1000],
+        "webroots": sorted(webroots),
+        "hardening": hardening,
+        "service_lifecycle_lead_count": len(services),
+        "service_startup_config_lead_count": len(active_services),
+        "service_stop_lead_count": len(stop_services),
+        "update_security_lead_count": len(updates),
+        "update_ui_path_count": len(update_ui_paths),
         "binary_priority_leads": binary_leads[:100],
     }
 
@@ -522,39 +599,69 @@ def main() -> int:
     (REPORT / "firmware-binaries.json").write_text(json.dumps(elfs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (REPORT / "firmware-services.json").write_text(json.dumps(services, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (REPORT / "firmware-update-leads.json").write_text(json.dumps(updates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (REPORT / "firmware-update-ui-paths.json").write_text(json.dumps(update_ui_paths, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (REPORT / "firmware-components.json").write_text(json.dumps(packages, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (REPORT / "firmware-scripts.json").write_text(json.dumps(scripts, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (REPORT / "firmware-web-files.json").write_text(json.dumps(web_files[:10000], indent=2) + "\n", encoding="utf-8")
 
     write_txt("firmware-baseline.txt", [
         "# Firmware deterministic baseline",
-        f"rootfs: {rel(rootfs)}", f"preparation coverage: {prep.get('coverage')}",
+        f"rootfs: {rel(rootfs)}",
+        f"preparation coverage: {prep.get('coverage')}",
         f"analysis artifact dirs pruned: {artifact_dirs_pruned}",
-        f"files: {file_count}", f"executables: {executable_count}", f"ELF binaries/libraries: {len(elfs)}",
-        f"scripts: {script_count}", f"SUID files: {len(suid_files)}", f"SGID files: {len(sgid_files)}",
-        f"world-writable files: {len(world_writable)}", f"web roots: {len(webroots)}", f"web files: {len(web_files)}",
-        f"service/startup leads: {len(services)}", f"update/security leads: {len(updates)}",
-        f"package-db components: {len(packages)}", f"full RELRO: {hardening['full_relro']}/{len(elfs)}",
-        f"NX stack: {hardening['nx_stack']}/{len(elfs)}", f"executable stack: {hardening['executable_stack']}/{len(elfs)}",
+        f"files: {file_count}",
+        f"executables: {executable_count}",
+        f"ELF binaries/libraries: {len(elfs)}",
+        f"scripts: {script_count}",
+        f"SUID files: {len(suid_files)}",
+        f"SGID files: {len(sgid_files)}",
+        f"world-writable files: {len(world_writable)}",
+        f"web roots: {len(webroots)}",
+        f"web files: {len(web_files)}",
+        f"service lifecycle leads: {len(services)}",
+        f"service startup/config leads: {len(active_services)}",
+        f"service stop-only leads: {len(stop_services)}",
+        f"update/security leads: {len(updates)}",
+        f"update UI/path anchors: {len(update_ui_paths)}",
+        f"package-db components: {len(packages)}",
+        f"full RELRO: {hardening['full_relro']}/{len(elfs)}",
+        f"NX stack: {hardening['nx_stack']}/{len(elfs)}",
+        f"executable stack: {hardening['executable_stack']}/{len(elfs)}",
         f"stack-canary references: {hardening['canary_ref']}/{len(elfs)}",
         f"dangerous-import lead binaries: {hardening['dangerous_import_lead_binaries']}",
         f"network-import lead binaries: {hardening['network_import_lead_binaries']}",
-        "", "## Highest-priority binary review leads",
-    ] + [f"- score={item['score']:2d} {item['path']} ({', '.join(item['reasons'])})" for item in binary_leads[:25]])
-
-    write_txt("firmware-services.txt", ["# Service/startup leads"] + [
-        f"- {item['path']}:{item['line']} kind={item['kind']} daemons={','.join(item['daemons']) or '-'} :: {item['text']}" for item in services[:150]
+        "",
+        "## Highest-priority binary review leads",
+    ] + [
+        f"- score={item['score']:2d} {item['path']} ({', '.join(item['reasons'])})"
+        for item in binary_leads[:25]
     ])
-    write_txt("firmware-update-leads.txt", ["# Firmware update/security leads"] + [
-        f"- {item['path']}:{item['line']} keywords={','.join(item['keywords'])} :: {item['text']}" for item in updates[:150]
+
+    write_txt("firmware-services.txt", ["# Service/lifecycle leads"] + [
+        f"- {item['path']}:{item['line']} kind={item['kind']} daemons={','.join(item['daemons']) or '-'} :: {item['text']}"
+        for item in services[:150]
+    ])
+    write_txt("firmware-update-leads.txt", ["# Firmware update/security mechanism leads"] + [
+        f"- {item['path']}:{item['line']} keywords={','.join(item['keywords'])} :: {item['text']}"
+        for item in updates[:150]
+    ])
+    write_txt("firmware-update-ui-paths.txt", ["# Firmware update UI/path anchors"] + [
+        f"- {item['path']}:{item['line']} keywords={','.join(item['keywords'])} :: {item['text']}"
+        for item in update_ui_paths[:150]
     ])
     write_txt("firmware-components.txt", ["# Package database components"] + [
-        f"- {item['manager']} {item['name']} {item.get('version') or '?'}" for item in packages[:500]
+        f"- {item['manager']} {item['name']} {item.get('version') or '?'}"
+        for item in packages[:500]
     ])
 
     print("[+] Firmware deterministic baseline complete")
     print(f"    rootfs: {rel(rootfs)}")
-    print(f"    files={file_count} elfs={len(elfs)} services={len(services)} update_leads={len(updates)} pruned_artifact_dirs={artifact_dirs_pruned}")
+    print(
+        f"    files={file_count} elfs={len(elfs)} "
+        f"service_active={len(active_services)} service_stop={len(stop_services)} "
+        f"update_security={len(updates)} update_ui={len(update_ui_paths)} "
+        f"pruned_artifact_dirs={artifact_dirs_pruned}"
+    )
     return 0
 
 
