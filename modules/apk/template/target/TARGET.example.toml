@@ -3,7 +3,6 @@ name="APK review"
 authorized=false
 
 [orchestration]
-# Maximum number of delegated agent tasks that may run concurrently.
 max_parallel_agents=2
 research_max_questions=3
 research_max_sources_per_question=5
@@ -26,28 +25,29 @@ path="input/app.apk"
 # Dynamic analysis is toolkit-contained and uses only the managed Android
 # Emulator. No external Android device is required or assumed.
 enabled=false
-# auto: choose the best locally possible emulator mode; none: disable runtime.
-backend="auto"
-# 0 chooses the app target SDK when possible. Explicit values may be used for
-# reproducible compatibility testing.
+backend="auto"                 # auto | none
+# 0 chooses the app target SDK when possible. The runtime may intentionally use
+# Android 11/API 30 for the documented x86_64 multi-ABI compatibility fallback.
 api_level=36
-# auto prefers rootable AOSP/default images and falls back to google_apis when
-# necessary. Play Store images are intentionally not selected automatically.
-image_tag="auto"
-# When KVM is unavailable (for example LXC without /dev/kvm, a VM without nested
-# virtualization, or ARM target code on an x86_64 host), permit -accel off.
-# This can be dramatically slower but keeps a toolkit-only fallback available.
+# auto prefers rootable AOSP/default images and falls back to google_apis.
+# Play Store images are not selected by this toolkit flow.
+image_tag="auto"               # auto | default | google_apis
+# Same-architecture x86_64 emulation can run without KVM via -accel off when
+# explicitly allowed. This is much slower but useful when LXC/VM lacks KVM.
 allow_software_emulation=true
+# Android 11 x86_64 system images support ARMv7/ARM64 binaries. For an app that
+# has native code but no x86_64 library, allow the toolkit to select API 30 when
+# minSdk <= 30. If false, such a package is reported incompatible on x86_64.
+allow_android11_multiabi_fallback=true
 headless=true
 wipe_data_on_start=true
-# Default false so permission prompts and denial behavior remain observable.
+# Keep false so normal permission prompts/denials remain observable.
 grant_runtime_permissions=false
-# AOSP/default emulator images normally permit adb root; capability is verified
-# after boot and recorded rather than assumed.
+# Root is requested and then verified; it is never assumed from image naming.
 request_root=true
 allow_frida=false
-# Active validation means emulator-local interaction such as invoking exported
-# components/deep links. It never authorizes crafted backend/API attacks.
+# Emulator-local component/deep-link/UI validation only. This does not authorize
+# crafted/replayed/mutated backend/provider API requests.
 allow_active_validation=false
 memory_mb=4096
 cores=4
