@@ -2,18 +2,20 @@
 
 A modular OpenCode-based security-analysis toolkit for local assessment workspaces.
 
-The Git repository contains only framework code, module templates, dependency definitions, documentation, and tests. **Real project data must never be stored in this repository.** APKs, firmware images, API credentials, customer scopes, reports, findings, captures, extracted files, and other assessment artifacts belong in a separate local workspace created with `./toolkit init`.
+The Git repository contains framework code, module templates, dependency definitions, documentation, and tests only. **Real project data must never be stored in this repository.** APKs, firmware images, API credentials, customer scopes, reports, findings, captures, extracted files, and runtime state belong in separate local workspaces created with `./toolkit init`.
 
 ## Supported platforms
 
-- Ubuntu 24.04
-- Ubuntu 26.04
-- Debian 12
-- Debian 13
+Static analysis supports:
+
+- Ubuntu 24.04 / 26.04
+- Debian 12 / 13
 - Kali Rolling
 - Parrot OS 7.x
 
-The toolkit targets Debian/APT-family Linux systems and is designed for LXC-style workers. It deliberately does **not** install QEMU, KVM, Docker, FirmAE, Android emulators, or other emulation stacks.
+The toolkit targets Debian/APT-family Linux systems and remains suitable for LXC-style static workers.
+
+APK dynamic analysis is optional. Its managed Android Emulator runtime currently targets **Linux x86_64** and performs a capability probe before use. It does not assume KVM, nested virtualization, or `/dev/kvm` passthrough and never reconfigures the host hypervisor/container.
 
 ## Modules
 
@@ -23,11 +25,11 @@ The toolkit targets Debian/APT-family Linux systems and is designed for LXC-styl
 
 Current modules:
 
-- `apk` - Android APK/package security analysis
+- `apk` - Android APK/XAPK static and optional managed-emulator dynamic security analysis
 - `api` - authorized API security testing
 - `firmware` - static embedded/firmware security analysis
 
-## First installation
+## Installation
 
 ```bash
 git clone https://github.com/stoertebeker/security-agent-toolkit.git
@@ -35,86 +37,55 @@ cd security-agent-toolkit
 git checkout refactor/modular-toolkit-v1
 ```
 
-Show help and platform detection:
+Static APK tooling:
 
 ```bash
-./toolkit
-./toolkit platform
-```
-
-Check and install one module:
-
-```bash
-./toolkit doctor apk
 ./toolkit install apk
 ./toolkit doctor apk
 ```
 
-OpenCode is mandatory core software and is installed automatically when necessary. Managed runtime components live under:
+Install optional APK dynamic extras as well:
+
+```bash
+./toolkit install apk --with-optional
+./toolkit doctor apk
+```
+
+`doctor` reports required and optional dependencies separately, so a static-only worker does not look broken merely because the emulator is absent.
+
+Managed runtime components live under:
 
 ```text
 ~/.local/share/security-agent-toolkit/
 ```
 
-This may contain OpenCode, uv, managed Python runtimes/tools, JDK 21, Ghidra, JADX, Apktool and Rust/Binwalk where needed. Native Linux tools are installed through APT.
+This may contain OpenCode, uv/Python tools, JDK 21, Ghidra, JADX, Apktool and, when explicitly installed, Android SDK/Emulator/system images. Project AVD state never lives there; it stays in the project workspace.
 
 ## Local workspaces
 
-Assessment projects must live **outside the Git repository**:
+Assessment projects must live outside the Git repository:
 
 ```bash
 mkdir -p ~/security-work
 ./toolkit init apk ~/security-work/my-app
+cd ~/security-work/my-app
 ```
 
-The toolkit refuses to initialize a project inside its own checkout. Generated workspaces keep temporary analysis data under `work/tmp` and set `TMPDIR`, `TMP` and `TEMP` accordingly.
+Temporary and runtime project state stays under `work/`; assessment evidence stays under `findings/` and `reports/`.
 
-## Agent orchestration settings
-
-Each local project has an `[orchestration]` section in `target/TARGET.toml`.
-
-```toml
-[orchestration]
-max_parallel_agents = 2
-```
-
-This is the maximum number of delegated agent tasks that should execute concurrently. OpenCode currently has no native global max-concurrency scheduler option, so project agents enforce the policy from target configuration.
-
-The APK module also exposes bounded research controls:
-
-```toml
-[orchestration]
-max_parallel_agents = 2
-research_max_questions = 3
-research_max_sources_per_question = 5
-research_max_report_words = 900
-```
-
-APK research uses a tightly bounded extra agent level:
-
-```text
-apk-security
-  -> apk-researcher
-       -> apk-web-worker
-```
-
-Web access is denied globally for normal APK agents and enabled only for the narrow web worker.
-
-Research is **local-first**. Every delegated research question must carry 2-5 concrete non-sensitive local facts, why the question matters, and the exact external fact still needed. The web worker performs one focused discovery search and then fetches/reads the strongest primary source before broadening search. Search snippets remain `SOURCE_LEAD_ONLY` and cannot change findings.
-
-## APK workflow
+## APK/XAPK workflow
 
 ```bash
-./toolkit install apk
-./toolkit init apk ~/security-work/example-apk
-cd ~/security-work/example-apk
 cp /path/to/application.apk input/app.apk
+# or: cp /path/to/application.xapk input/app.xapk
 nano target/TARGET.toml
 python3 tools/apk_prepare.py
 ./start.sh
 ```
 
-A useful local target configuration is:
+Preparation accepts APK or XAPK. XAPK is safely unpacked by the toolkit; base and split APKs are treated as one application. Split code/resources/native libraries are included in coverage.
+
+### Example target configuration
 
 ```toml
 [engagement]
@@ -141,59 +112,41 @@ path = "input/app.apk"
 
 [dynamic]
 enabled = false
-adb_serial = ""
+backend = "auto"
+api_level = 36
+image_tag = "auto"
+allow_software_emulation = true
+allow_android11_multiabi_fallback = true
+headless = true
+wipe_data_on_start = true
+grant_runtime_permissions = false
+request_root = true
 allow_frida = false
+allow_active_validation = false
+memory_mb = 4096
+cores = 4
+boot_timeout_seconds = 600
+observation_seconds = 15
+emulator_port = 5554
 ```
 
-The module is static-first. Preparation supports a normal APK and supported package containers such as XAPK. When preparation produces a base APK plus splits, agents treat them as one application and include split code/resources/native libraries in coverage.
+## Static analysis architecture
 
-### Hard-coded secrets, credentials, encodings and hashes
+### Secret/material pipeline
 
-Preparation creates a deterministic raw candidate set. **The LLM workflow does not review that raw array.** It is first filtered and semantically grouped:
+Raw deterministic scanner hits are **not** fed into LLM context:
 
 ```text
 secret-candidates.json
-        |
-        v
-apk_secret_group.py
-        |
-        v
-secret-groups.json
-        |
-        v
-apk-secret-hunter -> bounded review workers
+        -> strict filtering + semantic grouping
+        -> secret-groups.json
+        -> apk-secret-hunter
+        -> bounded plausibility workers
 ```
 
-Grouping removes structurally invalid crypt-prefix noise, collapses repeated values, deduplicates decompiler copies, and groups localized Android resources by resource key before AI plausibility review.
+Repeated/decompiler/localization copies and invalid crypt-prefix noise are collapsed before AI review. The taxonomy distinguishes real confidential credentials from client signing material, client-SDK authentication material, public client configuration, runtime credentials, hashes/KDFs, encodings, identifiers and false positives.
 
-The grouped taxonomy distinguishes:
-- `CONFIRMED_SECRET_OR_CREDENTIAL` for actually confidential/privileged reusable material;
-- `EXPOSED_CLIENT_SIGNING_MATERIAL` for client-shipped signing material whose server trust/confidentiality semantics are conditional;
-- `CLIENT_SDK_AUTH_MATERIAL` for mobile-SDK integration authentication material whose provider-side privilege/reusability is conditional;
-- `PUBLIC_CLIENT_CONFIGURATION` and other runtime/hash/encoding/identifier/test/false-positive classes.
-
-A field named `secret`, `APPSECRET` or `clientSecret` is not automatically a confidential backend credential.
-
-When working in a protected environment, plaintext retention can be explicitly enabled:
-
-```toml
-[secrets]
-store_plaintext = true
-analyze_encodings = true
-analyze_hashes = true
-max_decode_depth = 2
-ai_plausibility_triage = true
-ai_triage_batch_size = 20
-ai_representative_locations = 3
-```
-
-Exact matched and printable decoded values are confined to:
-
-```text
-reports/sensitive/
-```
-
-Normal findings, consolidated reports, agent summaries and public research remain redacted. Hash/KDF analysis may identify structured formats or cautious Hashcat mode hints for later operator use. Bare digest lengths remain ambiguous unless implementation context identifies the algorithm. The workflow does not crack hashes automatically.
+If plaintext retention is explicitly enabled, exact material remains under `reports/sensitive/`; normal findings, dynamic instrumentation and public research stay redacted.
 
 Inside OpenCode:
 
@@ -201,19 +154,15 @@ Inside OpenCode:
 /secrets
 ```
 
-refreshes deterministic grouping and bounded AI plausibility triage without repeating broad analysis.
+refreshes this path without broad re-analysis.
 
-### Native/JNI baseline
-
-The APK module uses a cheap deterministic native baseline before deeper reverse engineering:
+### Native/JNI pipeline
 
 ```bash
 python3 tools/apk_native_baseline.py
 ```
 
-It recursively covers `.so` files under `extracted/apktool/`, including decoded ABI/split trees. The baseline records architecture, selected ELF hardening properties, JNI exports, dangerous-import leads and redacted native secret-string leads.
-
-Baseline indicators are review leads, not vulnerabilities. `apk-native-reverser` and Ghidra are reserved for app-relevant, reachable or otherwise plausible security-sensitive native paths rather than every third-party library.
+The deterministic baseline recursively covers base and split `.so` libraries, recording ABI/ELF hardening/JNI/import/redacted string leads. Ghidra/deeper reversing is reserved for app-relevant or otherwise plausible security-sensitive paths.
 
 Inside OpenCode:
 
@@ -221,66 +170,181 @@ Inside OpenCode:
 /native
 ```
 
-refreshes baseline/native coverage and performs focused follow-up without repeating the whole assessment.
+refreshes focused native coverage.
 
-### Reporting and follow-up research
+### Public research
 
-Durable analysis state lives under `findings/`, delegated detail under `reports/subagents/`, one canonical public-research report per question under `reports/research/`, and the final report at:
+Research is local-first and bounded. Every web-worker question carries concrete non-sensitive local applicability facts and the exact external fact still needed. Workers fetch/read a primary source before broadening search. Unfetched search snippets remain `SOURCE_LEAD_ONLY` and cannot change findings.
+
+```text
+/research
+```
+
+performs targeted follow-up only.
+
+## Toolkit-contained dynamic APK analysis
+
+There is no external-device path in dynamic v1. The runtime is a managed Android Emulator installed with:
+
+```bash
+./toolkit install apk --with-optional
+```
+
+### Capability probe
+
+Every dynamic setup starts with:
+
+```bash
+python3 tools/apk_dynamic.py probe
+```
+
+It records:
+
+- host architecture;
+- bare-metal / VM / container-LXC environment;
+- CPU virtualization flags;
+- `/dev/kvm` presence and permissions;
+- `emulator -accel-check` result;
+- prepared package native ABIs;
+- chosen runtime ABI strategy;
+- KVM / software / unavailable mode.
+
+CPU `vmx`/`svm` flags alone are never treated as proof that KVM works.
+
+For LXC without `/dev/kvm`, the report explains that the host must pass the KVM device into the container for acceleration. For a VM without `/dev/kvm`, it records likely missing nested virtualization. The toolkit does not modify either host configuration.
+
+If KVM is unavailable, an x86_64 system image may use `-accel off` only when `allow_software_emulation=true`; this can be dramatically slower.
+
+### Native ABI compatibility
+
+On an x86_64 host:
+
+- apps with x86_64 native code use an x86_64 system image;
+- apps without native code use an x86_64 system image;
+- if native code exists but no x86_64 library is supplied and `minSdk <= 30`, the toolkit may select an **Android 11/API 30 x86_64 multi-ABI image**, which supports x86/x86_64/ARMv7/ARM64 app binaries;
+- if that compatibility fallback is impossible, the runtime is reported `UNAVAILABLE` rather than attempting an unverified cross-architecture setup.
+
+The API-30 fallback is explicitly recorded as compatibility coverage and does not pretend to validate target-OS-specific behavior on Android 16/17.
+
+### Real setup smoke test
+
+OpenCode command:
+
+```text
+/dynamic-setup
+```
+
+performs the capability probe, downloads/creates a compatible AVD, then executes a real boot test through `sys.boot_completed=1`, verifies runtime ABI/root state, and shuts the emulator down. This catches LXC/seccomp/device/runtime problems that cannot be inferred from CPU flags alone.
+
+Managed SDK/system images live under `$SAT_HOME/android-sdk`. AVD user/runtime state is project-local under:
+
+```text
+work/android/
+```
+
+### Dynamic collection
+
+With `[dynamic].enabled=true`:
+
+```text
+/dynamic
+```
+
+runs the managed flow:
+
+```text
+probe -> setup -> boot -> install APK/base+splits -> launch
+      -> optional Frida observation
+      -> PCAP + logcat + UI/screenshot + app/process state
+      -> deterministic evidence summary
+      -> dynamic analyst
+      -> validator for material finding changes
+```
+
+Key artifacts include:
+
+```text
+reports/tool-output/dynamic-capabilities.{json,txt}
+reports/dynamic/setup.json
+reports/dynamic/setup-smoke.json
+reports/dynamic/device-info.json
+reports/dynamic/root-status.json
+reports/dynamic/abi-compatibility.json
+reports/dynamic/network.pcap
+reports/dynamic/*logcat*.txt
+reports/dynamic/ui.xml
+reports/dynamic/screenshot.png
+reports/dynamic/states/
+reports/dynamic/frida-events.txt
+reports/dynamic/actions.jsonl
+reports/dynamic/evidence-summary.{json,txt}
+reports/subagents/dynamic-review.md
+findings/dynamic.md
+reports/DYNAMIC_SECURITY_REPORT.md
+```
+
+The emulator's PCAP is parsed locally with `tcpdump`; encrypted payloads are not assumed readable merely because a capture exists.
+
+### Frida
+
+When `allow_frida=true`, Frida is used only if the managed emulator actually provides root. A matching `frida-server` is downloaded and deployed without repackaging the target APK.
+
+Default hooks are deliberately redacted. They can record WebView/navigation URLs without query/fragment, bridge names, network endpoint/method metadata, native-library and Dex loading, storage key/table names and value lengths, crypto algorithm names, subprocess execution metadata, and debugger-check execution. Passwords, tokens, request bodies and raw stored values are not copied into normal dynamic artifacts.
+
+### Active validation
+
+`allow_active_validation=true` permits only bounded emulator-local checks based on existing static hypotheses. Actions use the audited wrapper:
+
+```text
+python3 tools/apk_dynamic_action.py deep-link ...
+python3 tools/apk_dynamic_action.py component ...
+python3 tools/apk_dynamic_action.py tap ...
+python3 tools/apk_dynamic_action.py keyevent ...
+python3 tools/apk_dynamic_action.py text ...
+```
+
+Declared custom schemes/components are validated where applicable and every action is recorded in `reports/dynamic/actions.jsonl`. This gate does **not** authorize broad fuzzing or crafted/replayed/mutated backend/provider API calls. Backend testing remains a separately scoped API assessment.
+
+Runtime behavior that was not observed is not treated as absent unless the relevant feature was actually exercised. Missing Google services, software-emulation slowness, API-30 compatibility mode, missing root/Frida, or inaccessible login-gated features are coverage limitations.
+
+## Reporting
+
+Durable APK state includes:
+
+```text
+findings/inventory.md
+findings/attack-surface.md
+findings/secrets.md
+findings/findings.md
+findings/dynamic.md
+findings/coverage.md
+findings/research.md
+findings/analysis-log.md
+```
+
+The static report is:
 
 ```text
 reports/STATIC_SECURITY_REPORT.md
 ```
 
-After initial analysis, `/research` performs bounded follow-up only for unresolved public questions that survive the local-first gate. If local evidence answers the outstanding question, web research may correctly be skipped.
-
-Each research worker receives an explicit packet:
+When dynamic analysis runs, it also creates:
 
 ```text
-RQ-ID / narrow question
-Why it matters
-Local facts: 2-5 concrete non-sensitive facts
-External fact needed
-Source/report budgets
+reports/DYNAMIC_SECURITY_REPORT.md
 ```
 
-The worker should discover once, fetch/read the strongest primary source, try at most one alternate primary page if needed, and only then broaden search. An unfetched decisive source remains `SOURCE_LEAD_ONLY`.
+A compact analyst summary near the top of the static report states whether confirmed Critical/High findings exist, highest supported severity, top risks, unusual behavior, concealment/anti-analysis state, and the main remaining limitation.
 
-Detailed APK pipeline contracts and targeted regression commands are documented in:
+Detailed architecture and regression commands are documented in:
 
 ```text
 docs/APK_ANALYSIS_PIPELINE.md
 ```
 
-### Fresh APK end-to-end acceptance test
-
-For a clean module test, use a new workspace and a different authorized application. Do not copy extracted artifacts or findings from an older assessment.
-
-Expected sequence:
-
-```text
-toolkit init apk
-  -> configure TARGET.toml
-  -> place package input
-  -> tools/apk_prepare.py
-       -> metadata/signature
-       -> JADX + Apktool
-       -> deterministic secret/material scan
-  -> start.sh
-       -> attack-surface/static analysis
-       -> strict group-first secret triage
-       -> deterministic native baseline
-       -> focused native review when justified
-       -> durable findings/coverage/provenance
-       -> reports/STATIC_SECURITY_REPORT.md
-  -> /research
-       -> local-first unresolved-question review
-       -> bounded fetch-first web research only when useful
-```
-
 ## Firmware workflow
 
 ```bash
-./toolkit doctor firmware
 ./toolkit install firmware
 ./toolkit init firmware ~/security-work/router-review
 cd ~/security-work/router-review
@@ -288,12 +352,11 @@ cp /path/to/router.bin input/firmware.bin
 ./start.sh
 ```
 
-The firmware module intentionally focuses on static analysis and reverse engineering. The base toolkit does not install or rely on emulation software.
+Firmware remains static/reverse-engineering focused and has no emulator dependency.
 
 ## API workflow
 
 ```bash
-./toolkit doctor api
 ./toolkit install api
 ./toolkit init api ~/security-work/customer-api
 cd ~/security-work/customer-api
@@ -301,7 +364,7 @@ nano target/TARGET.toml
 ./start.sh
 ```
 
-The API module stores authorization metadata, explicit URL-prefix scope, allowed HTTP methods, and optional test credentials only in the local project workspace. Its request wrapper enforces configured scope and does not automatically follow HTTP redirects.
+API credentials/scope remain project-local. The module's request wrapper enforces configured scope and does not automatically follow redirects.
 
 ## Toolkit commands
 
@@ -309,30 +372,24 @@ The API module stores authorization metadata, explicit URL-prefix scope, allowed
 ./toolkit list
 ./toolkit platform
 ./toolkit doctor <module>
-./toolkit install <module>
+./toolkit install <module> [--with-optional]
 ./toolkit init <module> <destination>
 ./toolkit validate-module <module>
 ./toolkit validate
 ./toolkit repo-guard
 ```
 
-## Repository safety
-
-The repository intentionally contains no real assessment data. `.gitignore` and `./toolkit repo-guard` provide additional safeguards against accidentally adding common target and artifact types.
-
-## Developing a new module
+## Repository safety and module development
 
 Read:
 
 ```text
+AGENTS.md
 docs/MODULE_CONTRACT.md
 docs/ADDING_A_MODULE.md
-AGENTS.md
 ```
 
-A module is discovered automatically from `modules/<module>/module.toml`; there is no hardcoded central list of module names. New dependencies belong in the central dependency catalog.
-
-Validate development changes with:
+Validate changes with:
 
 ```bash
 ./toolkit validate-module <module>
@@ -340,16 +397,4 @@ Validate development changes with:
 ./toolkit repo-guard
 ```
 
-## Design principles
-
-- OpenCode is the orchestration layer.
-- Primary contexts stay small; bulky detail belongs in project files and delegated sessions.
-- Parallelism is configurable per project through `TARGET.toml`.
-- Default subagent depth is 1; bounded depth 2 is allowed only where it materially reduces parent-context growth.
-- Findings are evidence-first and important candidates get independent validation.
-- APK hard-coded material coverage is deterministic scan -> strict semantic grouping -> bounded AI plausibility triage.
-- Native coverage is deterministic baseline -> focused deeper reverse engineering only where justified.
-- Public research is local-first, local-facts-grounded, fetch-first, bounded and isolated from sensitive assessment data.
-- Sensitive plaintext retention is explicit opt-in and remains outside normal/public reporting paths.
-- Project artifacts stay in generated local workspaces.
-- The toolkit repository remains free of project/customer/target data.
+The toolkit repository remains free of customer/target data; project data stays in generated workspaces.
