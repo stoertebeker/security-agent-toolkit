@@ -40,7 +40,10 @@ packages = ["yara"]
 
 [dependencies.firmware-extractors]
 kind = "apt"
-check = "command -v unsquashfs && command -v 7z && command -v zstd && command -v lz4 && command -v debugfs && command -v simg2img && command -v unar && command -v fsck.erofs && command -v partclone.restore"
+# Core extraction capability only. Additional format-specific helpers below are
+# still installed, but their absence must not block unrelated firmware formats.
+# firmware_prepare.py records unblob's external-dependency matrix as coverage.
+check = "command -v unsquashfs && (command -v 7z || command -v 7zz) && command -v zstd && command -v lz4 && command -v debugfs"
 packages = [
   "squashfs-tools",
   "p7zip-full",
