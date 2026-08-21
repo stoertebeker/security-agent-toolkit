@@ -2,17 +2,26 @@
 description: Probe and prepare the toolkit-managed Android Emulator for this APK workspace
 agent: apk-security
 ---
-Prepare dynamic analysis only; do not repeat static analysis and do not run the application yet.
+Prepare dynamic analysis only; do not repeat static analysis or perform target interactions.
 
 1. Read `[dynamic]` from `target/TARGET.toml`. If `dynamic.enabled=false`, stop and state that dynamic analysis is intentionally disabled.
 2. Run `python3 tools/apk_dynamic.py probe`.
-3. Read `reports/tool-output/dynamic-capabilities.txt` and explain the selected mode:
-   - KVM accelerated;
-   - software emulation;
-   - unavailable.
-4. If Android Emulator tooling is missing, stop with the exact operator action `./toolkit install apk --with-optional` in the toolkit repository. Do not try to modify the host hypervisor or escape the workspace.
-5. If the capability probe is unavailable because LXC/container lacks `/dev/kvm`, a VM lacks nested virtualization, or host architecture is unsupported, preserve that reason. Software emulation may still proceed only when `allow_software_emulation=true` and the probe selected it.
+3. Read `reports/tool-output/dynamic-capabilities.txt` and explain:
+   - host environment (bare metal / VM / container);
+   - `/dev/kvm` and emulator acceleration status;
+   - package native ABIs;
+   - runtime ABI mode (`native-x86_64`, no-native, Android-11 multi-ABI compatibility, or unavailable);
+   - selected KVM/software/unavailable mode.
+4. If Android Emulator tooling is missing, stop with the exact operator action `./toolkit install apk --with-optional` in the toolkit repository. Do not modify the host hypervisor/container from the workspace.
+5. If the capability probe is unavailable because host architecture/ABI compatibility cannot be supported, preserve the exact reason. LXC/VM without KVM may use same-architecture x86_64 software emulation only when `allow_software_emulation=true`.
 6. Run `python3 tools/apk_dynamic.py setup`.
-7. Read `reports/dynamic/setup.json` and report selected Android API, system-image tag, ABI, acceleration mode, and whether root is expected. Do not claim root until boot verifies it.
+7. Run the real boot capability test:
 
-The setup may download a managed Android system image into `$SAT_HOME/android-sdk`; all AVD state remains project-local under `work/android/`.
+```text
+python3 tools/apk_dynamic_smoke.py
+```
+
+This must boot the generated AVD through `sys.boot_completed=1`, verify the device ABI list/root state, then shut it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
+8. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility mode, acceleration, boot success and actual root availability.
+
+The setup may download a managed Android system image into `$SAT_HOME/android-sdk`; all AVD/user/runtime state remains project-local under `work/android/`.
