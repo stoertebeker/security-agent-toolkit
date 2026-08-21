@@ -111,6 +111,32 @@ install_python_tool() {
   }
 }
 
+install_unblob() {
+  local dependency="$1"
+  install_python_tool "$dependency"
+
+  local real_unblob="$SAT_HOME/python-tools/unblob/bin/unblob"
+  [[ -x "$real_unblob" ]] || {
+    echo "unblob tool environment missing expected executable: $real_unblob" >&2
+    return 1
+  }
+
+  # uv exposes only the requested tool entry point in UV_TOOL_BIN_DIR. unblob's
+  # extractor dependency checks also need console scripts provided by Python
+  # dependencies such as jefferson and ubi-reader. Wrap unblob so its complete
+  # tool-environment bin directory and distro sbin paths are visible to itself
+  # and to subprocess extractors without polluting the user's interactive PATH.
+  rm -f "$SAT_HOME/bin/unblob"
+  cat > "$SAT_HOME/bin/unblob" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SAT_RUNTIME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export PATH="$SAT_RUNTIME/python-tools/unblob/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+exec "$SAT_RUNTIME/python-tools/unblob/bin/unblob" "$@"
+EOF
+  chmod +x "$SAT_HOME/bin/unblob"
+}
+
 install_jdk21() {
   mkdir -p "$SAT_HOME/java" "$SAT_HOME/bin" "$SAT_HOME/cache"
   local architecture url archive extracted
