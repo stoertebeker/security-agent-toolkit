@@ -110,7 +110,7 @@ Use one state:
 - `SUSPICIOUS_CONCEALMENT_INDICATORS`
 - `CONFIRMED_ANTI_ANALYSIS_OR_HIDDEN_BEHAVIOR`
 
-The latter two require concrete target-specific evidence.
+The latter two require concrete target-specific behavioral evidence. Hidden/debug/recovery/password page names, strings, comments, proprietary component names, disabled routes, or ordinary maintenance functionality alone are explicitly insufficient for `SUSPICIOUS_CONCEALMENT_INDICATORS`; keep `NONE_ESTABLISHED` unless behavior beyond those labels is established.
 
 ## Targeted public research
 
