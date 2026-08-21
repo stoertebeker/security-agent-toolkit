@@ -28,9 +28,11 @@ After the static findings have been validated, inspect `[dynamic].enabled`:
 
 - If false, record dynamic analysis as intentionally not run and complete the static report.
 - If true, execute the workflow defined by `.opencode/commands/dynamic.md` using only the toolkit-managed Android Emulator. No external Android device is allowed or required.
-- Dynamic setup must begin with `python3 tools/apk_dynamic.py probe` and must honestly distinguish KVM acceleration, software emulation, and unavailable environments such as LXC without `/dev/kvm` or a VM without nested virtualization.
-- Do not alter the host hypervisor/container configuration from the workspace.
+- Start with `python3 tools/apk_dynamic.py probe`. KVM is accepted only when the emulator self-check confirms it. LXC without `/dev/kvm` and a VM without nested virtualization are explicit environment limitations; never alter the host from the workspace.
+- Dynamic setup must use a documented compatible package/runtime ABI path and then pass the real boot smoke test. On x86_64, ARM-only package native code may use Android 11/API 30 x86_64 multi-ABI compatibility only when `minSdk <= 30` and that fallback is enabled. Label this API-30 compatibility coverage, not target-OS coverage. If no documented compatible runtime exists, report `UNAVAILABLE` rather than guessing.
+- Reuse a successful `/dynamic-setup` AVD instead of recreating it for the full dynamic run.
 - Dynamic evidence may confirm or narrow static hypotheses, but unobserved behavior is not proof of absence unless the relevant feature was actually exercised.
+- If active validation is enabled, use `tools/apk_dynamic_action.py` exclusively so local actions are constrained and audited. Do not broad-fuzz or use ad-hoc active ADB commands.
 - Active validation remains emulator-local. Do not craft/replay/mutate backend/provider API requests under the APK dynamic gate.
 
 At completion create/maintain `reports/STATIC_SECURITY_REPORT.md`. When dynamic analysis ran, also create `reports/DYNAMIC_SECURITY_REPORT.md` and incorporate validated runtime changes into the compact `## Analyst summary` near the top of the static report.
