@@ -24,6 +24,6 @@ Run the complete authorized firmware security assessment for the target configur
 8. Important High/Critical candidate findings require independent `security-validator` review before promotion.
 9. Perform bounded public research only after local evidence is complete and only for external facts that could materially change a specific local conclusion. Correlate research back to local version/use/reachability evidence.
 10. Maintain `findings/inventory.md`, `findings/attack-surface.md`, `findings/secrets.md`, `findings/update-security.md`, `findings/findings.md`, `findings/coverage.md`, `findings/research.md`, and `findings/analysis-log.md` throughout the run.
-11. At completion create `reports/STATIC_SECURITY_REPORT.md` from the durable records. Include a compact `## Analyst summary` near the top and repeat the same summary in the final response.
+11. At completion create `reports/STATIC_SECURITY_REPORT.md` from the durable records. Include a compact `## Analyst summary` near the top and repeat the same summary in the final response. In that summary, report the highest confirmed finding severity separately from the highest unresolved candidate severity/status. Never call an unresolved conditional candidate the "highest supported severity". Keep `Unusual behavior` separate from ordinary but notable attack-surface behavior.
 
 Do not execute target firmware binaries on the analysis host. Do not infer WAN exposure from static configuration alone. Keep the primary context small and put detailed delegated evidence under `reports/subagents/`.
