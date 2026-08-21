@@ -15,7 +15,6 @@ PREP = REPORT / "firmware-preparation.json"
 MAX_TEXT_SIZE = 2 * 1024 * 1024
 MAX_SERVICE_LEADS = 400
 MAX_UPDATE_LEADS = 300
-MAX_BINARY_TEXT = 2 * 1024 * 1024
 
 KNOWN_DAEMONS = {
     "uhttpd", "httpd", "lighttpd", "nginx", "boa", "mini_httpd", "thttpd",
@@ -43,18 +42,15 @@ UPDATE_KEYWORDS = (
 )
 
 WEB_EXTENSIONS = {".cgi", ".lua", ".php", ".asp", ".aspx", ".sh", ".js", ".html", ".htm"}
+PACKAGE_DB_PATHS = {
+    "usr/lib/opkg/status": "opkg",
+    "var/lib/dpkg/status": "dpkg",
+    "lib/apk/db/installed": "apk",
+}
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"[!] {message}")
-
-
-def run(command: list[str], timeout: int = 60) -> str:
-    proc = subprocess.run(
-        command, cwd=ROOT, text=True, errors="replace", stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, timeout=timeout, check=False,
-    )
-    return proc.stdout or ""
 
 
 def rel(path: Path) -> str:
@@ -64,6 +60,18 @@ def rel(path: Path) -> str:
         return str(path)
 
 
+def lstat_mode(path: Path) -> int | None:
+    try:
+        return path.lstat().st_mode
+    except OSError:
+        return None
+
+
+def real_dir(path: Path) -> bool:
+    mode = lstat_mode(path)
+    return bool(mode is not None and stat.S_ISDIR(mode))
+
+
 def load_rootfs() -> tuple[Path, dict]:
     if not PREP.is_file():
         fail("firmware preparation missing; run tools/firmware_prepare.py first")
@@ -71,46 +79,57 @@ def load_rootfs() -> tuple[Path, dict]:
     raw = prep.get("primary_rootfs") or prep.get("extraction_root")
     if not raw:
         fail("preparation did not establish an extraction root")
-    rootfs = ROOT / raw
-    if not rootfs.is_dir():
-        fail(f"prepared rootfs/extraction path missing: {raw}")
+    raw_path = Path(str(raw))
+    if raw_path.is_absolute() or ".." in raw_path.parts or raw_path.parts[:2] != ("work", "extracted"):
+        fail(f"unsafe prepared rootfs path: {raw}")
+    rootfs = ROOT / raw_path
+    if not real_dir(rootfs):
+        fail(f"prepared rootfs/extraction path is not a real directory: {raw}")
     return rootfs, prep
 
 
-def is_elf(path: Path) -> bool:
+def run(command: list[str], timeout: int = 60) -> str:
+    proc = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+    return proc.stdout or ""
+
+
+def read_regular_text(path: Path, st: os.stat_result) -> str:
+    if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_TEXT_SIZE:
+        return ""
     try:
-        if path.is_symlink() or not path.is_file():
-            return False
+        with path.open("rb") as handle:
+            sample = handle.read(4096)
+        if sample and b"\x00" in sample:
+            return ""
+        if sample:
+            printable = sum(byte in b"\t\n\r" or 32 <= byte < 127 for byte in sample)
+            if printable / len(sample) < 0.75:
+                return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def is_elf_regular(path: Path, st: os.stat_result) -> bool:
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    try:
         with path.open("rb") as handle:
             return handle.read(4) == b"\x7fELF"
     except OSError:
         return False
 
 
-def likely_text(path: Path) -> bool:
-    try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_TEXT_SIZE:
-            return False
-        with path.open("rb") as handle:
-            sample = handle.read(4096)
-        if not sample:
-            return True
-        if b"\x00" in sample:
-            return False
-        printable = sum(byte in b"\t\n\r" or 32 <= byte < 127 for byte in sample)
-        return printable / max(1, len(sample)) >= 0.75
-    except OSError:
-        return False
-
-
-def read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-
-
-def parse_elf(path: Path, mode: int) -> dict:
+def parse_elf(path: Path, st: os.stat_result) -> dict:
     header = run(["readelf", "-hW", str(path)])
     programs = run(["readelf", "-lW", str(path)])
     dynamic = run(["readelf", "-dW", str(path)])
@@ -123,32 +142,29 @@ def parse_elf(path: Path, mode: int) -> dict:
 
     interp_match = re.search(r"Requesting program interpreter:\s*([^\]]+)\]", programs)
     stack_line = next((line for line in programs.splitlines() if "GNU_STACK" in line), "")
+    executable_stack = bool(re.search(r"\bRWE\b", stack_line))
     has_relro = "GNU_RELRO" in programs
-    bind_now = "BIND_NOW" in dynamic or "FLAGS_1" in dynamic and "NOW" in dynamic
+    bind_now = "BIND_NOW" in dynamic or ("FLAGS_1" in dynamic and "NOW" in dynamic)
     elf_type = field("Type") or ""
     interpreter = interp_match.group(1).strip() if interp_match else None
     pie = bool(interpreter and elf_type.startswith("DYN"))
 
-    imported = set()
+    imported: set[str] = set()
     for line in symbols.splitlines():
         if " UND " not in line:
             continue
         parts = line.split()
         if parts:
-            symbol = parts[-1].split("@", 1)[0]
-            imported.add(symbol)
+            imported.add(parts[-1].split("@", 1)[0])
 
-    rpaths = []
-    for line in dynamic.splitlines():
-        if "(RPATH)" in line or "(RUNPATH)" in line:
-            rpaths.append(line.strip())
+    rpaths = [line.strip() for line in dynamic.splitlines() if "(RPATH)" in line or "(RUNPATH)" in line]
 
     return {
         "path": rel(path),
-        "size": path.stat().st_size,
-        "mode": oct(stat.S_IMODE(mode)),
-        "suid": bool(mode & stat.S_ISUID),
-        "sgid": bool(mode & stat.S_ISGID),
+        "size": st.st_size,
+        "mode": oct(stat.S_IMODE(st.st_mode)),
+        "suid": bool(st.st_mode & stat.S_ISUID),
+        "sgid": bool(st.st_mode & stat.S_ISGID),
         "class": field("Class"),
         "data": field("Data"),
         "machine": field("Machine"),
@@ -156,7 +172,8 @@ def parse_elf(path: Path, mode: int) -> dict:
         "interpreter": interpreter,
         "pie": pie,
         "relro": "full" if has_relro and bind_now else "partial" if has_relro else "none",
-        "nx_stack": bool(stack_line and " E " not in f" {stack_line} "),
+        "nx_stack": bool(stack_line) and not executable_stack,
+        "executable_stack": executable_stack,
         "stack_canary_ref": "__stack_chk_fail" in symbols,
         "fortify_import_count": sum(1 for item in imported if item.endswith("_chk")),
         "stripped": ".symtab" not in sections,
@@ -166,18 +183,15 @@ def parse_elf(path: Path, mode: int) -> dict:
     }
 
 
-def parse_passwd(rootfs: Path) -> list[dict]:
-    path = rootfs / "etc/passwd"
+def parse_passwd_text(text: str) -> list[dict]:
     result = []
-    if not path.is_file():
-        return result
-    for line in read_text(path).splitlines():
+    for line in text.splitlines():
         if not line or line.startswith("#"):
             continue
         parts = line.split(":")
         if len(parts) < 7:
             continue
-        username, passwd, uid, gid, gecos, home, shell = parts[:7]
+        username, passwd, uid, gid, _gecos, home, shell = parts[:7]
         result.append({
             "username": username,
             "uid": uid,
@@ -192,19 +206,15 @@ def parse_passwd(rootfs: Path) -> list[dict]:
 def shadow_scheme(value: str) -> str:
     if value in {"", "!", "!!", "*", "!*"}:
         return "empty" if value == "" else "locked"
-    mapping = {"$1$": "md5crypt", "$2": "bcrypt", "$5$": "sha256crypt", "$6$": "sha512crypt", "$y$": "yescrypt"}
-    for prefix, name in mapping.items():
+    for prefix, name in {"$1$": "md5crypt", "$2": "bcrypt", "$5$": "sha256crypt", "$6$": "sha512crypt", "$y$": "yescrypt"}.items():
         if value.startswith(prefix):
             return name
     return "hash-or-password-field"
 
 
-def parse_shadow(rootfs: Path) -> list[dict]:
-    path = rootfs / "etc/shadow"
+def parse_shadow_text(text: str) -> list[dict]:
     result = []
-    if not path.is_file():
-        return result
-    for line in read_text(path).splitlines():
+    for line in text.splitlines():
         if not line or line.startswith("#"):
             continue
         parts = line.split(":")
@@ -213,15 +223,26 @@ def parse_shadow(rootfs: Path) -> list[dict]:
     return result
 
 
-def service_path(path: Path, rootfs: Path) -> bool:
-    try:
-        relative = path.relative_to(rootfs).as_posix()
-    except ValueError:
-        return False
+def parse_package_text(text: str, manager: str, source: str) -> list[dict]:
+    packages: list[dict] = []
+    current: dict[str, str] = {}
+    for line in text.splitlines() + [""]:
+        if not line.strip():
+            name = current.get("Package") or current.get("P")
+            version = current.get("Version") or current.get("V")
+            if name:
+                packages.append({"manager": manager, "name": name, "version": version, "source": source})
+            current = {}
+            continue
+        if ":" in line:
+            key, value = line.split(":", 1)
+            current[key.strip()] = value.strip()
+    return packages
+
+
+def service_path(relative: str) -> bool:
     return bool(
-        relative == "etc/inittab"
-        or relative == "etc/inetd.conf"
-        or relative == "etc/crontab"
+        relative in {"etc/inittab", "etc/inetd.conf", "etc/crontab"}
         or relative.startswith("etc/init.d/")
         or re.match(r"etc/rc[^/]*/", relative)
         or relative.startswith("etc/xinetd.d/")
@@ -256,31 +277,6 @@ def update_leads(path: Path, text: str) -> list[dict]:
     return result
 
 
-def parse_package_db(rootfs: Path) -> list[dict]:
-    packages: list[dict] = []
-    candidates = [
-        (rootfs / "usr/lib/opkg/status", "opkg"),
-        (rootfs / "var/lib/dpkg/status", "dpkg"),
-        (rootfs / "lib/apk/db/installed", "apk"),
-    ]
-    for path, manager in candidates:
-        if not path.is_file():
-            continue
-        current: dict[str, str] = {}
-        for line in read_text(path).splitlines() + [""]:
-            if not line.strip():
-                name = current.get("Package") or current.get("P")
-                version = current.get("Version") or current.get("V")
-                if name:
-                    packages.append({"manager": manager, "name": name, "version": version, "source": rel(path)})
-                current = {}
-                continue
-            if ":" in line:
-                key, value = line.split(":", 1)
-                current[key.strip()] = value.strip()
-    return packages
-
-
 def write_txt(name: str, lines: list[str]) -> None:
     (REPORT / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -299,13 +295,23 @@ def main() -> int:
     elfs: list[dict] = []
     services: list[dict] = []
     updates: list[dict] = []
+    passwd: list[dict] = []
+    shadow: list[dict] = []
+    packages: list[dict] = []
 
     for current, dirnames, filenames in os.walk(rootfs, followlinks=False):
         current_path = Path(current)
-        dir_count += len(dirnames)
+        safe_dirs = []
         for dirname in dirnames:
-            if dirname.lower() in {"www", "wwwroot", "htdocs"}:
-                webroots.add(rel(current_path / dirname))
+            child = current_path / dirname
+            mode = lstat_mode(child)
+            if mode is not None and stat.S_ISDIR(mode):
+                safe_dirs.append(dirname)
+                if dirname.lower() in {"www", "wwwroot", "htdocs"}:
+                    webroots.add(rel(child))
+        dirnames[:] = safe_dirs
+        dir_count += len(safe_dirs)
+
         for filename in filenames:
             path = current_path / filename
             try:
@@ -318,45 +324,51 @@ def main() -> int:
             if not stat.S_ISREG(st.st_mode):
                 continue
             file_count += 1
-            mode = st.st_mode
-            if mode & stat.S_IXUSR or mode & stat.S_IXGRP or mode & stat.S_IXOTH:
+
+            try:
+                relative = path.relative_to(rootfs).as_posix()
+            except ValueError:
+                continue
+
+            if st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                 executable_count += 1
-            if mode & stat.S_ISUID:
+            if st.st_mode & stat.S_ISUID:
                 suid_files.append(rel(path))
-            if mode & stat.S_ISGID:
+            if st.st_mode & stat.S_ISGID:
                 sgid_files.append(rel(path))
-            if mode & stat.S_IWOTH:
+            if st.st_mode & stat.S_IWOTH:
                 world_writable.append(rel(path))
 
-            if is_elf(path):
+            if is_elf_regular(path, st):
                 try:
-                    elfs.append(parse_elf(path, mode))
+                    elfs.append(parse_elf(path, st))
                 except (OSError, subprocess.TimeoutExpired):
                     elfs.append({"path": rel(path), "error": "ELF metadata parse failed"})
                 continue
 
-            text_candidate = likely_text(path)
-            text = read_text(path) if text_candidate else ""
+            text = read_regular_text(path, st)
+            if not text:
+                continue
+
             if text.startswith("#!"):
                 script_count += 1
                 scripts.append({"path": rel(path), "interpreter": text.splitlines()[0][:200]})
 
-            try:
-                relative = path.relative_to(rootfs)
-            except ValueError:
-                relative = Path(filename)
-            if any(part.lower() in {"www", "wwwroot", "htdocs"} for part in relative.parts) or relative.as_posix().startswith("var/www/"):
+            if relative == "etc/passwd":
+                passwd = parse_passwd_text(text)
+            elif relative == "etc/shadow":
+                shadow = parse_shadow_text(text)
+            elif relative in PACKAGE_DB_PATHS:
+                packages.extend(parse_package_text(text, PACKAGE_DB_PATHS[relative], rel(path)))
+
+            if any(part.lower() in {"www", "wwwroot", "htdocs"} for part in Path(relative).parts) or relative.startswith("var/www/"):
                 if path.suffix.lower() in WEB_EXTENSIONS:
                     web_files.append(rel(path))
 
-            if text and service_path(path, rootfs) and len(services) < MAX_SERVICE_LEADS:
+            if service_path(relative) and len(services) < MAX_SERVICE_LEADS:
                 services.extend(service_leads(path, text)[: max(0, MAX_SERVICE_LEADS - len(services))])
-            if text and len(updates) < MAX_UPDATE_LEADS:
+            if len(updates) < MAX_UPDATE_LEADS:
                 updates.extend(update_leads(path, text)[: max(0, MAX_UPDATE_LEADS - len(updates))])
-
-    passwd = parse_passwd(rootfs)
-    shadow = parse_shadow(rootfs)
-    packages = parse_package_db(rootfs)
 
     hardening = {
         "elf_count": len(elfs),
@@ -365,17 +377,17 @@ def main() -> int:
         "partial_relro": sum(1 for item in elfs if item.get("relro") == "partial"),
         "no_relro": sum(1 for item in elfs if item.get("relro") == "none"),
         "nx_stack": sum(1 for item in elfs if item.get("nx_stack")),
+        "executable_stack": sum(1 for item in elfs if item.get("executable_stack")),
         "canary_ref": sum(1 for item in elfs if item.get("stack_canary_ref")),
         "suid_elf": sum(1 for item in elfs if item.get("suid")),
         "dangerous_import_lead_binaries": sum(1 for item in elfs if item.get("dangerous_imports")),
         "network_import_lead_binaries": sum(1 for item in elfs if item.get("network_imports")),
     }
 
-    # Prioritize binaries without pretending these scores are vulnerability severity.
-    binary_leads = []
     service_text = "\n".join(item.get("text", "") for item in services).lower()
     update_text = "\n".join(item.get("text", "") for item in updates).lower()
     common = {"busybox", "libc.so", "libpthread.so", "ld-uclibc.so", "ld-linux.so"}
+    binary_leads = []
     for item in elfs:
         if item.get("error"):
             continue
@@ -394,7 +406,7 @@ def main() -> int:
             score += 4; reasons.append("update-flow correlation")
         if item.get("rpath_runpath"):
             score += 2; reasons.append("RPATH/RUNPATH")
-        if item.get("relro") == "none" or not item.get("nx_stack") or not item.get("stack_canary_ref"):
+        if item.get("relro") == "none" or item.get("executable_stack") or not item.get("stack_canary_ref"):
             score += 1; reasons.append("hardening gap")
         if basename in common:
             score -= 2
@@ -403,13 +415,18 @@ def main() -> int:
     binary_leads.sort(key=lambda item: (-item["score"], item["path"]))
 
     baseline = {
-        "schema_version": 1,
+        "schema_version": 2,
         "rootfs": rel(rootfs),
         "preparation_coverage": prep.get("coverage"),
         "counts": {
-            "files": file_count, "directories": dir_count, "symlinks": symlink_count,
-            "executables": executable_count, "scripts": script_count, "elfs": len(elfs),
-            "web_files": len(web_files), "packages": len(packages),
+            "files": file_count,
+            "directories": dir_count,
+            "symlinks": symlink_count,
+            "executables": executable_count,
+            "scripts": script_count,
+            "elfs": len(elfs),
+            "web_files": len(web_files),
+            "packages": len(packages),
         },
         "users": passwd,
         "shadow_accounts": shadow,
@@ -449,6 +466,7 @@ def main() -> int:
         f"package-db components: {len(packages)}",
         f"full RELRO: {hardening['full_relro']}/{len(elfs)}",
         f"NX stack: {hardening['nx_stack']}/{len(elfs)}",
+        f"executable stack: {hardening['executable_stack']}/{len(elfs)}",
         f"stack-canary references: {hardening['canary_ref']}/{len(elfs)}",
         f"dangerous-import lead binaries: {hardening['dangerous_import_lead_binaries']}",
         f"network-import lead binaries: {hardening['network_import_lead_binaries']}",
