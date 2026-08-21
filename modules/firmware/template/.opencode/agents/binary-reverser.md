@@ -38,6 +38,18 @@ The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbo
 
 Use Ghidra iteratively. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name such as `FUN_0001c108`, use that function name as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer two or three narrow slices over one large decompilation dump.
 
+## Convergence and stop rule
+
+Do not turn one firmware image or one stripped binary into an open-ended reverse-engineering project. For one binary/hypothesis, normally perform at most **three focused Ghidra slice iterations** after lightweight triage. A fourth slice is justified only when the previous slice produced one concrete new function/address that is likely to close the exact missing source/gate/sink link and could materially change the finding disposition.
+
+Stop the static deep dive and return `NEEDS VALIDATION` when any of these applies:
+- successive slices only rename or expose adjacent helpers without closing a security-relevant link;
+- the remaining question depends primarily on runtime startup, listener/interface/firewall state, hardware/bootloader behavior, cloud/backend acceptance, cross-device reuse, or another non-static fact;
+- a plausible gate and sensitive sink are both established but their complete relationship would require broad whole-program reversing rather than a bounded focused slice;
+- the next step is specific to vendor implementation archaeology and is unlikely to improve the reusable toolkit or materially change the candidate status.
+
+Do not add target-specific regexes, hard-coded function addresses, vendor names, or special-case logic to toolkit code merely to finish one assessment. Improvements to the toolkit must remain architecture-/vendor-agnostic and reusable across firmware families.
+
 Read only the slice needed for the delegated hypothesis and summarize it rather than copying large decompiler output into reports.
 
 If the helper/Ghidra itself cannot import/analyze/decompile the target, record the concrete command, log path and failure. Only then may architecture/decompiler tooling be a coverage limitation. Do not substitute `host objdump lacks ARM support` for a Ghidra attempt when `analyzeHeadless` is available.
