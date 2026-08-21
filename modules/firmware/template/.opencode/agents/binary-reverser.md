@@ -32,7 +32,11 @@ python3 tools/firmware_ghidra_slice.py \
   [--needle <another-needle> ...]
 ```
 
-Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Read only the slice needed for the delegated hypothesis and summarize it rather than copying large decompiler output into reports.
+Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, records instruction context around direct xrefs, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Each distinct query produces a separate query-id artifact, so preserve earlier slices rather than overwriting them.
+
+Use Ghidra iteratively. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name such as `FUN_0001c108`, use that function symbol as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer two or three narrow slices over one large decompilation dump.
+
+Read only the slice needed for the delegated hypothesis and summarize it rather than copying large decompiler output into reports.
 
 If the helper/Ghidra itself cannot import/analyze/decompile the target, record the concrete command, log path and failure. Only then may architecture/decompiler tooling be a coverage limitation. Do not substitute `host objdump lacks ARM support` for a Ghidra attempt when `analyzeHeadless` is available.
 
