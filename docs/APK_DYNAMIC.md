@@ -195,10 +195,20 @@ On x86_64:
 
 1. x86_64 native library present: use x86_64 system image at the requested/target API where available.
 2. no native libraries: use x86_64 normally.
-3. native code exists but no x86_64 library, and `minSdk <= 30`: when enabled, use Android 11/API 30 x86_64 multi-ABI compatibility. Android 11 x86_64 emulator images support x86, x86_64, ARMv7 and ARM64 app binaries.
+3. native code exists but no x86_64 library, and `minSdk <= 30`: when enabled, use Android 11/API 30 x86_64 multi-ABI compatibility. Android 11 x86_64 emulator images support ARM binaries through Android's native-bridge translation mechanism.
 4. no compatible documented path: report `UNAVAILABLE`.
 
-After boot, the toolkit checks the emulator's actual `ro.product.cpu.abilist` against the package requirements before installing the app. A theoretical image choice is therefore not enough to pass setup.
+For the Android-11 multi-ABI path, `ro.product.cpu.abilist` is **not** by itself the compatibility verdict. A booted x86_64 image may report only native `x86,x86_64` ABIs there while ARM compatibility is supplied through the native bridge. The smoke test therefore records and checks properties such as:
+
+```text
+ro.dalvik.vm.native.bridge
+ro.enable.native.bridge.exec
+ro.dalvik.vm.isa.arm64
+ro.dalvik.vm.isa.arm
+ro.ndk_translation.version / ro.berberis.version
+```
+
+`reports/dynamic/abi-compatibility.json` distinguishes direct native compatibility from `android-native-bridge` compatibility. The later successful `adb install` / `adb install-multiple` step is the final package-level compatibility proof and is added to that artifact.
 
 The Android-11 fallback validates runtime behavior on API 30 only. Do not generalize the result to Android 16/17 platform-specific behavior.
 
@@ -217,7 +227,9 @@ python3 tools/apk_dynamic.py setup
 python3 tools/apk_dynamic_smoke.py
 ```
 
-The smoke test performs a real boot, waits for `sys.boot_completed=1`, verifies ABI/root/device properties, then shuts down. This is the decisive test for LXC/VM restrictions that are not visible from CPU flags or `/dev/kvm` alone.
+The smoke test performs a real boot, waits for `sys.boot_completed=1`, records native ABI and native-bridge properties, verifies the selected compatibility path, measures actual root-shell state, then shuts down. This is the decisive test for LXC/VM restrictions that are not visible from CPU flags or `/dev/kvm` alone.
+
+Root is also evidence-based. If `adb shell id` already reports `uid=0`, the runtime records root as available without requiring an extra `adb root` restart. If root cannot be established, non-root ADB analysis continues; Frida injected mode and root-only data collection become coverage limitations rather than a global dynamic failure.
 
 Review:
 
@@ -241,12 +253,12 @@ Inside OpenCode:
 The normal flow is:
 
 ```text
-probe -> setup -> boot -> ABI verify -> install -> launch
+probe -> setup -> boot -> runtime/native-bridge ABI verify -> install -> launch
       -> optional Frida -> collect -> deterministic evidence summary
       -> dynamic analyst -> validator for material changes
 ```
 
-The XAPK path installs the prepared base plus all split APKs with `adb install-multiple`.
+The XAPK path installs the prepared base plus all split APKs with `adb install-multiple`. A successful installation upgrades the ABI evidence from a boot-time compatibility indication to an actual package-level compatibility result.
 
 ## Runtime evidence
 
@@ -312,7 +324,7 @@ Usually `/dev/kvm` is absent and `emulator -accel-check` fails. Same-architectur
 
 ### ARM64-only XAPK on x86_64
 
-If `minSdk <= 30`, expect `android11-x86_64-multiabi-translation` and API 30. This preserves x86_64/KVM execution while supplying ARM64 app ABI compatibility. If `minSdk > 30`, dynamic v1 reports no documented compatible runtime.
+If `minSdk <= 30`, expect `android11-x86_64-multiabi-translation` and API 30. Do not expect `ro.product.cpu.abilist` necessarily to contain `arm64-v8a`; inspect the native-bridge evidence and then require successful package installation during `/dynamic`. If `minSdk > 30`, dynamic v1 reports no documented compatible runtime.
 
 ### App requires Google Play services
 
