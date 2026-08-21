@@ -48,6 +48,11 @@ kind = "apt"
 check = "command -v adb && command -v aapt2 && command -v apksigner"
 packages = ["adb", "aapt", "apksigner"]
 
+[dependencies.android-emulator]
+kind = "handler"
+handler = "install_android_emulator"
+check = "test -x \"$SAT_HOME/bin/emulator\" && test -x \"$SAT_HOME/bin/sdkmanager\" && test -x \"$SAT_HOME/bin/avdmanager\" && test -x \"$SAT_HOME/bin/adb\""
+
 [dependencies.nmap]
 kind = "apt"
 check = "command -v nmap"
@@ -117,6 +122,6 @@ executable = "androguard"
 [dependencies.frida-tools]
 kind = "handler"
 handler = "install_python_tool"
-check = "command -v frida"
+check = "command -v frida && command -v frida-ps"
 package = "frida-tools"
-executable = "frida-tools"
+executable = "frida"
