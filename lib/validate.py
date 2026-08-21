@@ -168,6 +168,21 @@ def validate_module(root: Path, module: str):
                 if token not in analyze_text:
                     errors.append(f"Firmware /analyze must enforce autonomous bounded native analysis ({token})")
 
+        concealment_contracts = {
+            ".opencode/agents/firmware-security.md": ("SUSPICIOUS_CONCEALMENT_INDICATORS", "explicitly insufficient"),
+            ".opencode/agents/firmware-explorer.md": ("SUSPICIOUS_CONCEALMENT_INDICATORS", "filenames and labels are leads only"),
+            ".opencode/agents/security-validator.md": ("SUSPICIOUS_CONCEALMENT_INDICATORS", "alone are insufficient"),
+            ".opencode/commands/summary.md": ("SUSPICIOUS_CONCEALMENT_INDICATORS", "Names/strings alone"),
+        }
+        for relative, tokens in concealment_contracts.items():
+            path = template / relative
+            if not path.exists():
+                continue
+            text = path.read_text(errors="replace")
+            for token in tokens:
+                if token not in text:
+                    errors.append(f"Firmware concealment evidence contract missing {relative} token: {token}")
+
         orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
         for field, lower, upper in (("research_max_questions",1,20),("research_max_sources_per_question",1,20),("research_max_report_words",200,3000)):
             value = orchestration.get(field)
