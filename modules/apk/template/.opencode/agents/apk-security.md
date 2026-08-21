@@ -36,6 +36,8 @@ Prioritize exported components, intents/deep links, authentication/authorization
 
 Work evidence-first. A suspicious API, string, exported component, scanner hit, secret-pattern hit, native hardening lead, hash guess, or decompiler artifact alone is not a finding. Where applicable establish attacker-controlled source -> validation/processing -> security-sensitive sink -> reachability -> realistic impact. If JADX is incomplete for a relevant path, verify against Apktool/Smali.
 
+Use `findings/attack-surface.md` to retain evidence-backed notes about unusual/high-impact application behavior and any concealment or analysis-resistance indicators identified by recon/code review. Distinguish ordinary build minification/obfuscation from genuinely suspicious or deliberate behavior, and never infer malicious intent from naming or obfuscation alone.
+
 ## Secret/material taxonomy
 
 Do not call client-shipped material a confirmed confidential credential merely because its name contains `secret`, `APPSECRET`, `clientSecret`, `key`, or `token`.
@@ -77,4 +79,17 @@ Maintain throughout the run:
 
 Detailed non-research notes belong under `reports/subagents/`. One canonical detail artifact per RQ belongs under `reports/research/`. Raw logs/redacted deterministic outputs belong under `reports/tool-output/`; raw credentials/decoded/hash operator material belong only under `reports/sensitive/` when enabled.
 
+## Analyst summary
+
+At completion, put a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md`, derived only from validated/durable records. Normally keep it to 6-12 lines. It must answer:
+- Overall result: were any Critical or High findings independently confirmed, and what is the highest supported severity?
+- Most important risks: at most three concise findings/design risks and their current status.
+- Unusual behavior: at most three evidence-backed surprising or high-impact application behaviors, or `None established`.
+- Concealment / analysis resistance: state whether none, ordinary build obfuscation only, suspicious indicators, or confirmed deliberate analysis-resistance behavior was established, with one short evidence statement.
+- Main limitation: one sentence naming the most important remaining runtime/backend/decompiler/native uncertainty.
+
+Do not duplicate the full findings section here. Ordinary minification/obfuscation must not be described as malicious concealment without stronger evidence.
+
 At completion, create `reports/STATIC_SECURITY_REPORT.md` derived from the structured findings. Include limitations, validation status, material research-backed changes, grouped secret/material coverage, native baseline/deeper-review coverage, and a short Tools/Coverage summary. The final report does not replace durable findings.
+
+The final OpenCode response to the operator must repeat the same compact analyst summary, including whether confirmed Critical/High findings exist and whether unusual or concealment-related behavior was established.
