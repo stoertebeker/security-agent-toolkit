@@ -28,10 +28,16 @@ sat_uv_environment() {
   export UV_CACHE_DIR="$SAT_HOME/cache/uv"
 }
 
+sat_dependency_path() {
+  # Non-login shells and some minimal/container environments omit sbin paths,
+  # even though distro packages legitimately install helper tools there.
+  printf '%s' "$SAT_HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+}
+
 sat_check_dependency() {
   local command
   command="$(sat_catalog "$1" check)"
-  PATH="$SAT_HOME/bin:$PATH" bash -c "$command" >/dev/null 2>&1
+  PATH="$(sat_dependency_path)" bash -c "$command" >/dev/null 2>&1
 }
 
 sat_doctor_dependency() {
@@ -185,9 +191,6 @@ install_android_emulator() {
       ;;
   esac
 
-  # The Android emulator bundles its own QEMU engine. These are only userspace
-  # runtime libraries; this installer deliberately does not install libvirt/KVM
-  # or alter host/container virtualization settings.
   sat_sudo apt-get update
   sat_sudo apt-get install -y \
     libdbus-1-3 libfontconfig1 libgl1 libnss3 libvulkan1 \
