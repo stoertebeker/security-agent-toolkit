@@ -6,7 +6,7 @@ Use the preparation artifacts to determine the actual package layout. For a sing
 
 Read `[orchestration]` from TARGET.toml. Respect `max_parallel_agents` for concurrently executing delegated tasks, defaulting to 2 when absent.
 
-Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small.
+Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small. Include a lightweight review for unusual/high-impact application behavior and evidence-backed concealment or analysis-resistance indicators; ordinary minification/obfuscation alone is not suspicious intent.
 
 For hard-coded secret/material coverage, refresh `tools/apk_secret_group.py` after the deterministic scan and perform AI triage from `reports/tool-output/secret-groups.json`. Do not feed the raw `secret-candidates.json` candidate array into the LLM workflow. Distinguish confirmed confidential credentials from exposed client signing material, client SDK authentication material, public client configuration, runtime credentials, hashes/encodings and false positives.
 
@@ -25,7 +25,10 @@ Maintain the structured workspace records throughout the run:
 - `findings/research.md`
 - `findings/analysis-log.md`
 
-`findings/coverage.md` must state actual/intentional tool use, grouped secret/material coverage, native baseline vs deeper native-review coverage, split/container coverage when applicable, and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
+`findings/attack-surface.md` must also record unusual/high-impact behavior and a concise evidence-based concealment/analysis-resistance state. `findings/coverage.md` must state actual/intentional tool use, grouped secret/material coverage, native baseline vs deeper native-review coverage, split/container coverage when applicable, and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
 
 Detailed non-research work belongs in `reports/subagents/`; one canonical detail artifact per research question belongs in `reports/research/`.
-At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report, including limitations, validation status, material research-driven changes, grouped secret/material coverage, native baseline/deeper-review coverage, split/container limitations when applicable, and a short Tools/Coverage summary. The final report must not replace the structured `findings/` records.
+
+At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report. Near the top include a compact `## Analyst summary` that answers: whether any Critical/High finding was independently confirmed, the highest supported severity, the top three risks at most, unusual behavior found (or none), concealment/analysis-resistance state with evidence, and the single most important remaining limitation. Keep this summary short and do not describe ordinary minification/obfuscation as malicious concealment.
+
+Also repeat this compact analyst summary in the final OpenCode response to the operator. The final report must not replace the structured `findings/` records.
