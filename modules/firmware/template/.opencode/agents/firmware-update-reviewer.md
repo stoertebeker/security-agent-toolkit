@@ -11,6 +11,8 @@ permission:
 ---
 Review only the delegated firmware-update/security hypothesis. Start from `reports/tool-output/firmware-update-leads.json`, relevant web/API handlers, scripts/configs, trust material, and selected backing binaries.
 
+`firmware-update-leads.json` is the security/mechanism lead set. `reports/tool-output/firmware-update-ui-paths.json` is a separate navigation/UI anchor set. UI paths, DOM ids, CSS classes, help text, or page names such as `upgrade` are useful only for locating entry points; they do not establish update verification, privileged write behavior, or even a backend update path by themselves. Likewise, vendor prefixes such as `FW_` may mean firewall rather than firmware and must not be interpreted semantically without local evidence.
+
 Trace the update chain where locally possible:
 
 ```text
