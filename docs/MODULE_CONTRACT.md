@@ -6,50 +6,36 @@ Static functionality must not require QEMU/libvirt/Docker/KVM/FirmAE or another 
 
 Every generated project must expose `[orchestration].max_parallel_agents` in `target/TARGET.toml`; default is 2. Primary/coordinator prompts must read and honor it.
 
-Default `subagent_depth` is 1. Depth 2 is permitted only for a bounded coordinator -> worker architecture where:
-- task routing explicitly prevents arbitrary nesting;
-- leaf workers have `permission.task: deny`;
-- coordinator and worker agents have finite `steps` budgets;
-- the nested level materially reduces parent-context growth;
-- no third nested level is possible.
+Default `subagent_depth` is 1. Depth 2 is permitted only for a bounded coordinator -> worker architecture where task routing prevents arbitrary nesting, leaf workers deny further tasks, finite step budgets exist, and no third nested level is possible.
 
 When a module supports public research:
-- perform cheap local artifact checks before creating a web question;
-- every delegated RQ must include why it matters, 2-5 concrete non-sensitive local facts including useful negative evidence, and the exact external fact still needed;
-- isolate websearch/webfetch to narrow worker agents;
-- workers should discover once, fetch/read the strongest primary source before broadening search;
-- bound question count, useful-source count, and report size;
+- perform cheap local artifact checks before a web question;
+- every RQ must include why it matters, 2-5 concrete non-sensitive local facts and the exact external fact needed;
+- isolate web access to narrow workers;
+- discover once, fetch/read the strongest primary source before broadening search;
+- bound question/source/report size;
 - use one canonical detail artifact per question;
-- treat search snippets as discovery leads rather than verified material facts when the decisive source was not actually fetched/read;
-- correlate public facts with local evidence before changing a finding;
-- prefer a consolidated validator pass for material research-driven changes.
+- treat unfetched search snippets as leads only;
+- correlate public facts with local evidence and validate material changes.
 
-When a security class can be supported by deterministic preprocessing, use reproducible tooling before agent interpretation. Pattern/scanner hits are leads, not findings. Prefer semantic grouping/deduplication before AI review. Where raw scanner output is large, keep it behind a deterministic preprocessing boundary instead of feeding it into LLM context.
+When deterministic preprocessing can reduce a security class, use it before agent interpretation. Pattern/scanner hits are leads, not findings. Large raw outputs stay behind filter/group/dedup boundaries rather than entering LLM context directly.
 
-For credential/secret workflows:
-- keep normal reports redacted by default;
-- exact values require explicit per-project opt-in and must remain in a dedicated sensitive-artifact path;
-- never send sensitive values into public research or ordinary dynamic instrumentation output;
-- distinguish truly confidential/privileged credentials from client-shipped signing material, client-SDK authentication material, public client configuration, certificates/fingerprints, checksums, identifiers, test data and false positives;
-- names such as `secret`, `clientSecret` or `APPSECRET` are not confidentiality proofs;
-- distinguish reversible encodings from hashes/KDFs; bare digest lengths remain ambiguous without local implementation context;
-- automatic cracking/password recovery is outside the normal workflow.
+Credential workflows must keep normal output redacted and distinguish truly confidential/privileged credentials from client signing material, client-SDK authentication material, public client configuration, certificates/fingerprints, checksums, identifiers, tests and false positives. Secret-like names are not confidentiality proofs. Automatic cracking is outside normal workflow.
 
-For native-code workflows:
-- use a cheap deterministic baseline before expensive reverse engineering;
-- enumerate all package/split native libraries and record architecture, hardening/JNI/import/string leads without treating them as findings;
-- distinguish baseline coverage from deeper reverse engineering;
-- reserve Ghidra/deeper analysis for app-relevant, reachable or otherwise plausible security-sensitive paths.
+Native workflows use a cheap deterministic baseline across all base/split libraries before deeper reversing. Record architecture/hardening/JNI/import/string leads, distinguish baseline from deeper review, and reserve Ghidra for app-relevant/reachable paths.
 
 For optional emulator-backed dynamic workflows:
-- capability probe must precede setup and record bare metal/VM/container, CPU virtualization flags, `/dev/kvm` presence/access, emulator hypervisor self-check, package ABI requirements and selected acceleration mode;
-- do not infer KVM usability from `vmx`/`svm` alone;
-- LXC/container without `/dev/kvm` and VM without nested virtualization must be surfaced as environment limitations, not silently worked around by changing the host;
-- software CPU emulation is allowed only by explicit project configuration and must be reported as potentially very slow;
-- managed SDK/system images may live in toolkit runtime, but AVD/user/runtime state and captures must remain project-local;
+- capability probe precedes setup and records bare metal/VM/container, CPU virtualization flags, `/dev/kvm` access, emulator hypervisor self-check, package ABI requirements and selected runtime strategy;
+- KVM usability must not be inferred from `vmx`/`svm` alone;
+- LXC without `/dev/kvm` and VM without nested virtualization are environment limitations, not invitations to alter the host;
+- same-architecture software emulation is explicit and reported as slow;
+- ABI compatibility must use documented runtime paths only. For APK on x86_64, Android-11/API-30 x86_64 multi-ABI compatibility may be used for ARMv7/ARM64 package code only when `minSdk <= 30` and the project permits it; label it API-30 compatibility coverage rather than target-OS coverage;
+- if no documented compatible runtime exists, report `UNAVAILABLE` instead of attempting speculative cross-architecture emulation;
+- setup must include a real boot smoke test, not only static host capability checks;
+- managed SDK/system images may live in toolkit runtime, but AVD/user/runtime state and captures remain project-local;
 - prefer rootable analysis images where possible and verify root after boot;
-- runtime evidence should have deterministic preprocessing before LLM interpretation where practical;
-- lack of observation is not proof of absence unless the relevant behavior was actually exercised;
-- active validation must remain within the module's defined local/runtime scope. APK emulator-local component/deep-link actions do not authorize backend/API mutation or replay.
+- runtime evidence should have deterministic preprocessing before LLM interpretation;
+- lack of observation is not proof of absence unless the relevant behavior was exercised;
+- active actions must be bounded and auditable. APK active validation uses its toolkit wrapper for declared components/custom schemes/UI actions and does not silently expand into backend/API mutation or replay.
 
 APK public research, group-first secret/material triage, deterministic native baseline -> focused native review, and capability-gated emulator runtime analysis are reference implementations of these patterns.
