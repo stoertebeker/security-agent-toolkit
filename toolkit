@@ -34,6 +34,11 @@ Commands:
   init <module> <destination>
       Create a local analysis workspace outside this Git repository.
 
+  sync <module> <workspace>
+      Refresh toolkit-managed tools, agents and launcher files in an existing
+      workspace while preserving TARGET.toml, input, work, reports and existing
+      findings.
+
   validate-module <module>
       Validate one module against the toolkit module contract.
 
@@ -47,6 +52,7 @@ Examples:
   ./toolkit install apk
   ./toolkit install apk --with-optional
   ./toolkit init apk ~/security-work/customer-app
+  ./toolkit sync firmware ~/security-work/firmware-review
 
 Runtime location:
   ~/.local/share/security-agent-toolkit
@@ -156,6 +162,12 @@ case "$cmd" in
     need 3 "$@"
     modok "$2"
     sat_init_project "$ROOT" "$2" "$3"
+    ;;
+
+  sync)
+    need 3 "$@"
+    modok "$2"
+    sat_sync_project "$ROOT" "$2" "$3"
     ;;
 
   validate-module)
