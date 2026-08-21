@@ -2,33 +2,39 @@ Analyze the authorized Android application package configured in `target/TARGET.
 
 If usable preparation output already exists under `extracted/jadx/`, `extracted/apktool/` and `reports/tool-output/` for the current input, reuse it instead of repeating expensive decompilation. Otherwise run `tools/apk_prepare.py`.
 
-Use the preparation artifacts to determine the actual package layout. For a single-package input, analyze the prepared APK normally. When preparation produced a base package plus split packages, treat them together as one application: use the base manifest for the primary component/permission surface, inspect split-provided code/resources/native libraries, and record any additional package-data coverage or limitations. Do not assume a split/container layout when the input is a normal APK.
+Use preparation artifacts to determine the actual package layout. For base + split packages, treat them together as one application and include split-provided code/resources/native libraries.
 
-Read `[orchestration]` from TARGET.toml. Respect `max_parallel_agents` for concurrently executing delegated tasks, defaulting to 2 when absent.
+Read `[orchestration]`, `[secrets]`, and `[dynamic]` from TARGET.toml. Respect `max_parallel_agents`, defaulting to 2.
 
-Map the attack surface first, then perform prioritized static security analysis. Keep the primary context small. Include a lightweight review for unusual/high-impact application behavior and evidence-backed concealment or analysis-resistance indicators; ordinary minification/obfuscation alone is not suspicious intent.
+Perform prioritized static analysis first. Map attack surface, unusual/high-impact behavior, concealment/analysis-resistance indicators, grouped secret/material coverage and native baseline/deeper review. Ordinary minification/obfuscation alone is not suspicious intent.
 
-For hard-coded secret/material coverage, refresh `tools/apk_secret_group.py` after the deterministic scan and perform AI triage from `reports/tool-output/secret-groups.json`. Do not feed the raw `secret-candidates.json` candidate array into the LLM workflow. Distinguish confirmed confidential credentials from exposed client signing material, client SDK authentication material, public client configuration, runtime credentials, hashes/encodings and false positives.
+For hard-coded material, refresh `tools/apk_secret_group.py` after deterministic scanning and use only `reports/tool-output/secret-groups.json` for LLM triage. Distinguish confirmed confidential credentials from client signing material, client SDK auth material, public configuration, runtime credentials, hashes/encodings and false positives.
 
-For native coverage, refresh `tools/apk_native_baseline.py` when needed. The baseline recursively covers base and split `.so` files and records ELF/hardening/JNI/import/string leads. Use `apk-native-reverser` only for app-relevant or otherwise security-interesting native paths; Ghidra is not required for every third-party library.
+For native coverage, refresh `tools/apk_native_baseline.py` when needed. Use deeper native review only for app-relevant/reachable or otherwise security-interesting libraries.
 
-For public research use local-first behavior. Only externally answerable residual questions go to `apk-researcher`, and every delegated research question must include 2-5 concrete non-sensitive local facts plus the exact external fact still needed. Research workers should fetch/read a primary source immediately after discovery before broadening search. Respect `research_max_questions`, `research_max_sources_per_question`, and `research_max_report_words` from TARGET.toml, defaulting to 3, 5 and 900.
+Use public research local-first. Every delegated research question must include concrete non-sensitive local facts and the exact external fact still needed. Search-only leads must not change findings.
 
-`findings/research.md` is only a compact index. Each public question gets exactly one canonical detail file under `reports/research/RQ-XX-....md`; do not create a separate batch-summary report. Perform cheap deterministic local correlation after research before marking something unresolved. Search-only source leads must not change findings without verified source support and local applicability.
-
-Maintain the structured workspace records throughout the run:
+Maintain throughout:
 - `findings/inventory.md`
 - `findings/attack-surface.md`
 - `findings/secrets.md`
 - `findings/findings.md`
+- `findings/dynamic.md`
 - `findings/coverage.md`
 - `findings/research.md`
 - `findings/analysis-log.md`
 
-`findings/attack-surface.md` must also record unusual/high-impact behavior and a concise evidence-based concealment/analysis-resistance state. `findings/coverage.md` must state actual/intentional tool use, grouped secret/material coverage, native baseline vs deeper native-review coverage, split/container coverage when applicable, and degraded coverage. `findings/analysis-log.md` records concise subagent provenance, result paths and observed peak concurrency rather than repeating finding prose.
+After the static findings have been validated, inspect `[dynamic].enabled`:
 
-Detailed non-research work belongs in `reports/subagents/`; one canonical detail artifact per research question belongs in `reports/research/`.
+- If false, record dynamic analysis as intentionally not run and complete the static report.
+- If true, execute the workflow defined by `.opencode/commands/dynamic.md` using only the toolkit-managed Android Emulator. No external Android device is allowed or required.
+- Dynamic setup must begin with `python3 tools/apk_dynamic.py probe` and must honestly distinguish KVM acceleration, software emulation, and unavailable environments such as LXC without `/dev/kvm` or a VM without nested virtualization.
+- Do not alter the host hypervisor/container configuration from the workspace.
+- Dynamic evidence may confirm or narrow static hypotheses, but unobserved behavior is not proof of absence unless the relevant feature was actually exercised.
+- Active validation remains emulator-local. Do not craft/replay/mutate backend/provider API requests under the APK dynamic gate.
 
-At completion create `reports/STATIC_SECURITY_REPORT.md` as the consolidated human-readable report. Near the top include a compact `## Analyst summary` that answers: whether any Critical/High finding was independently confirmed, the highest supported severity, the top three risks at most, unusual behavior found (or none), concealment/analysis-resistance state with evidence, and the single most important remaining limitation. Keep this summary short and do not describe ordinary minification/obfuscation as malicious concealment.
+At completion create/maintain `reports/STATIC_SECURITY_REPORT.md`. When dynamic analysis ran, also create `reports/DYNAMIC_SECURITY_REPORT.md` and incorporate validated runtime changes into the compact `## Analyst summary` near the top of the static report.
 
-Also repeat this compact analyst summary in the final OpenCode response to the operator. The final report must not replace the structured `findings/` records.
+The analyst summary must state: whether any Critical/High finding was independently confirmed, highest supported severity, top three risks at most, unusual behavior found (or none), concealment/analysis-resistance state with evidence, and the single most important remaining limitation.
+
+Repeat the same compact analyst summary in the final OpenCode response. The human-readable reports do not replace the structured `findings/` records.
