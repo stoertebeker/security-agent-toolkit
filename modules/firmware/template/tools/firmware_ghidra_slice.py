@@ -160,8 +160,13 @@ def main() -> int:
     slug = slug_for(binary)
     project_root = WORK / "ghidra" / "projects"
     slice_root = WORK / "ghidra" / "slices"
+    ghidra_state = WORK / "cache" / "ghidra"
+    ghidra_config = ghidra_state / "config"
+    ghidra_cache = ghidra_state / "cache"
     project_root.mkdir(parents=True, exist_ok=True)
     slice_root.mkdir(parents=True, exist_ok=True)
+    ghidra_config.mkdir(parents=True, exist_ok=True)
+    ghidra_cache.mkdir(parents=True, exist_ok=True)
     TMP.mkdir(parents=True, exist_ok=True)
     REPORT.mkdir(parents=True, exist_ok=True)
 
@@ -191,9 +196,20 @@ def main() -> int:
     env["TMPDIR"] = str(TMP)
     env["TMP"] = str(TMP)
     env["TEMP"] = str(TMP)
-    java_opts = env.get("JAVA_TOOL_OPTIONS", "").strip()
-    tmp_opt = f"-Djava.io.tmpdir={TMP}"
-    env["JAVA_TOOL_OPTIONS"] = f"{java_opts} {tmp_opt}".strip()
+    env["XDG_CONFIG_HOME"] = str(ghidra_config)
+    env["XDG_CACHE_HOME"] = str(ghidra_cache)
+
+    # Ghidra's launcher officially honors these application directory system
+    # properties. Keep settings/cache/temp under the assessment workspace and
+    # append rather than replace any operator-provided headless JVM options.
+    existing_headless_opts = env.get("GHIDRA_HEADLESS_JAVA_OPTIONS", "").strip()
+    local_opts = " ".join([
+        f"-Dapplication.settingsdir={ghidra_config}",
+        f"-Dapplication.cachedir={ghidra_cache}",
+        f"-Dapplication.tempdir={TMP}",
+        f"-Djava.io.tmpdir={TMP}",
+    ])
+    env["GHIDRA_HEADLESS_JAVA_OPTIONS"] = f"{existing_headless_opts} {local_opts}".strip()
 
     # Overall wrapper budget includes auto-analysis plus multiple selected
     # function decompilations. Keep it bounded but do not cut off legitimate
@@ -227,6 +243,7 @@ def main() -> int:
         f"slice: {output}",
         f"needles: {', '.join(args.needle)}",
         f"library_search_paths: {', '.join(str(path.relative_to(rootfs)) for path in library_paths) or '(none)'}",
+        f"ghidra_state: {ghidra_state.relative_to(ROOT)}",
         f"analysis_timeout_seconds: {args.timeout}",
         f"decompile_timeout_seconds: {args.decompile_timeout}",
         f"exit_code: {proc.returncode}",
