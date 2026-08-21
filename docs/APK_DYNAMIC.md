@@ -76,6 +76,61 @@ The probe distinguishes:
 
 `vmx`/`svm` CPU flags are diagnostic only. KVM mode is selected only when `emulator -accel-check` succeeds.
 
+## Proxmox VE LXC: pass `/dev/kvm` through when possible
+
+When the probe reports `container/lxc`, CPU virtualization flags are visible, but `/dev/kvm` is absent, a Proxmox operator can normally improve the runtime substantially by passing the host KVM character device into the analysis CT.
+
+First verify on the **Proxmox host**:
+
+```bash
+test -c /dev/kvm && ls -l /dev/kvm
+pct config <CTID> | grep -E '^(unprivileged|dev[0-9]+):'
+```
+
+Inside the **container**, determine the intended KVM group ID and add the analysis user to the group when needed:
+
+```bash
+getent group kvm
+sudo usermod -aG kvm <analysis-user>
+```
+
+Then, on recent Proxmox VE releases, use a free `devN` slot:
+
+```bash
+pct set <CTID> --dev0 path=/dev/kvm,mode=0660,gid=<CONTAINER_KVM_GID>
+pct reboot <CTID>
+```
+
+If `dev0` is already present, use the next free `devN`. The `gid` is the `kvm` group ID as seen inside the container. Start a new login/session after changing group membership.
+
+Verify inside the container:
+
+```bash
+ls -l /dev/kvm
+test -r /dev/kvm && test -w /dev/kvm && echo kvm-device-rw
+emulator -accel-check
+python3 tools/apk_dynamic.py probe
+```
+
+The desired result is:
+
+```text
+/dev/kvm: rw
+KVM usable by emulator: yes
+selected acceleration: kvm
+```
+
+Older Proxmox VE releases that do not support `pct ... --devN` use the cgroup-v2 device-passthrough mechanism instead. Proxmox documents `lxc.cgroup2.devices.allow` for cgroup-v2 hardware passthrough; `/dev/kvm` is normally character device major/minor `10:232`, but verify the actual host device before using legacy configuration. A typical legacy configuration is conceptually:
+
+```text
+lxc.cgroup2.devices.allow: c 10:232 rwm
+lxc.mount.entry: /dev/kvm dev/kvm none bind,optional,create=file
+```
+
+Prefer the native `devN` device-passthrough option when available because it handles the container device entry explicitly.
+
+Passing `/dev/kvm` increases the container's access to the host kernel's KVM interface. Use it for a dedicated trusted analysis container rather than treating it as a zero-cost isolation feature. The toolkit never makes this host-side change itself.
+
 ## ABI compatibility
 
 The package's prepared native ABIs are part of the runtime decision.
@@ -193,7 +248,7 @@ AVD state remains under `work/android/` and can be removed with the project when
 
 ### LXC without `/dev/kvm`
 
-Expected probe note: container has no `/dev/kvm`. If software emulation is enabled, the x86_64 AVD may still be tried. `/dynamic-setup` performs the real boot test. For KVM acceleration, the required fix is host-side `/dev/kvm` passthrough; the toolkit intentionally does not perform it.
+Expected probe note: container has no `/dev/kvm`. If the Proxmox host is under operator control, prefer KVM-device passthrough as described above before accepting software emulation. Otherwise, if software emulation is enabled, the x86_64 AVD may still be tried and `/dynamic-setup` performs the real boot test.
 
 ### VM without nested virtualization
 
