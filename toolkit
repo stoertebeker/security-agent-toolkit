@@ -131,10 +131,23 @@ case "$cmd" in
     echo "Toolkit runtime: $SAT_HOME"
     echo
     sat_install_core
+
+    failed_dependencies=()
     while read -r dependency; do
-      [[ -n "$dependency" ]] && sat_install_dependency "$dependency"
+      [[ -z "$dependency" ]] && continue
+      if ! sat_install_dependency "$dependency"; then
+        failed_dependencies+=("$dependency")
+      fi
     done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" "$dep_mode")
+
     echo
+    if (( ${#failed_dependencies[@]} > 0 )); then
+      echo "Installation completed with dependency failures for module: $2" >&2
+      printf '  ✗ %s\n' "${failed_dependencies[@]}" >&2
+      echo "Run './toolkit doctor $2' for the current capability state." >&2
+      exit 1
+    fi
+
     echo "Installation completed for module: $2"
     echo "Run './toolkit doctor $2' to verify the installation."
     ;;
