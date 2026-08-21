@@ -16,6 +16,7 @@ Start from deterministic artifacts:
 - `reports/tool-output/firmware-baseline.json`
 - `reports/tool-output/firmware-services.json`
 - `reports/tool-output/firmware-components.json`
+- `reports/tool-output/firmware-component-fingerprints.json`
 - `reports/tool-output/firmware-binaries.json`
 
 Use the primary rootfs path established by preparation. If preparation/rootfs coverage is degraded, preserve that limitation.
@@ -32,6 +33,6 @@ Correlate only the focused local files needed to establish:
 - third-party component/version anchors suitable for later local-first research;
 - unusual/debug/maintenance behavior or concealment leads.
 
-A service command/config is a `startup/configured candidate`, not proof of network reachability. A component version is not a vulnerability. A SUID file is not a privilege escalation without an exploitable path.
+Package DB entries and static version-string fingerprints are local component anchors only. A service command/config is a `startup/configured candidate`, not proof of network reachability. A component version is not a vulnerability. A SUID file is not a privilege escalation without an exploitable path.
 
 Write concise detail to `reports/subagents/firmware-exploration.md`. Return a prioritized attack-surface summary and specific paths/hypotheses for service/update/binary/secret reviewers. No subagents and no web research.
