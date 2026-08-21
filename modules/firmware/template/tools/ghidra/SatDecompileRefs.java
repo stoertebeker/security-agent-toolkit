@@ -69,8 +69,6 @@ public class SatDecompileRefs extends GhidraScript {
     }
 
     private static int directScore(String needle) {
-        // Specific handler/path/operation strings should outrank broad lifecycle
-        // terms such as "reboot" when max-functions truncates the slice.
         int lengthBonus = Math.min(40, needle.length() * 2);
         int syntaxBonus = (needle.contains(".") || needle.contains("_") || needle.contains("/")) ? 30 : 0;
         return 100 + lengthBonus + syntaxBonus;
@@ -220,6 +218,20 @@ public class SatDecompileRefs extends GhidraScript {
                 if (!containsIgnoreCase(name, needle)) {
                     continue;
                 }
+
+                // When a needle directly names a recovered/generated function
+                // symbol (for example FUN_0001c108), include the function itself.
+                // This makes a first-pass caller visible as a precise second-pass
+                // target without needing a separate Ghidra project or script.
+                Function namedFunction = functions.getFunctionAt(symbol.getAddress());
+                if (namedFunction != null) {
+                    addReason(
+                        selected, namedFunction,
+                        "direct function-symbol match '" + needle + "' -> " + name,
+                        directScore(needle) + 80, needle, true, null, symbol.getAddress().toString()
+                    );
+                }
+
                 Reference[] symbolReferences = symbol.getReferences(null);
                 for (Reference reference : symbolReferences) {
                     Function caller = functions.getFunctionContaining(reference.getFromAddress());
