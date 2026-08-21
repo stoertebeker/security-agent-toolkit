@@ -182,7 +182,7 @@ def runtime_plan(host_arch: str, abis: list[str], meta: dict, dynamic: dict) -> 
         return {
             "supported": True, "image_abi": "x86_64", "api_override": 30,
             "abi_mode": "android11-x86_64-multiabi-translation",
-            "reason": "Android 11 x86_64 emulator images provide x86/x86_64/ARMv7/ARM64 ABI support; runtime OS coverage is API 30",
+            "reason": "Android 11 x86_64 emulator images support ARM binaries through Android native-bridge translation; runtime OS coverage is API 30",
         }
     return {
         "supported": False,
@@ -341,16 +341,16 @@ def wait_for_boot(dynamic: dict, emulator_process: subprocess.Popen, timeout_sec
     fail("emulator boot timed out; see reports/dynamic/emulator.log")
 
 
-def wait_for_adb_reconnect(dynamic: dict, timeout_seconds: int = 60) -> None:
+def wait_for_adb_reconnect(dynamic: dict, timeout_seconds: int = 60) -> bool:
     adb_bin = which("adb") or "adb"; serial = adb_serial(dynamic); deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
             state = run([adb_bin, "-s", serial, "get-state"], timeout=5)
-            if state.returncode == 0 and "device" in (state.stdout or ""): return
+            if state.returncode == 0 and "device" in (state.stdout or ""): return True
         except subprocess.TimeoutExpired:
             pass
         time.sleep(1)
-    fail("ADB did not reconnect after root transition")
+    return False
 
 
 def start_logcat(dynamic: dict) -> None:
@@ -366,7 +366,14 @@ def device_info(dynamic: dict) -> dict:
         match = re.match(r"\[([^\]]+)\]: \[(.*)\]", line)
         if match: props[match.group(1)] = match.group(2)
     ident = (adb(dynamic, "shell", "id", timeout=30).stdout or "").strip()
-    result = {"serial": adb_serial(dynamic), "id": ident, "sdk": props.get("ro.build.version.sdk"), "release": props.get("ro.build.version.release"), "abi": props.get("ro.product.cpu.abi"), "abilist": props.get("ro.product.cpu.abilist"), "abilist64": props.get("ro.product.cpu.abilist64"), "abilist32": props.get("ro.product.cpu.abilist32"), "build_type": props.get("ro.build.type"), "build_tags": props.get("ro.build.tags"), "model": props.get("ro.product.model"), "fingerprint": props.get("ro.build.fingerprint")}
+    result = {
+        "serial": adb_serial(dynamic), "id": ident, "sdk": props.get("ro.build.version.sdk"), "release": props.get("ro.build.version.release"),
+        "abi": props.get("ro.product.cpu.abi"), "abilist": props.get("ro.product.cpu.abilist"), "abilist64": props.get("ro.product.cpu.abilist64"), "abilist32": props.get("ro.product.cpu.abilist32"),
+        "native_bridge": props.get("ro.dalvik.vm.native.bridge"), "native_bridge_exec": props.get("ro.enable.native.bridge.exec"),
+        "translated_arm64_isa": props.get("ro.dalvik.vm.isa.arm64"), "translated_arm_isa": props.get("ro.dalvik.vm.isa.arm"),
+        "ndk_translation_version": props.get("ro.ndk_translation.version"), "berberis_version": props.get("ro.berberis.version"),
+        "build_type": props.get("ro.build.type"), "build_tags": props.get("ro.build.tags"), "model": props.get("ro.product.model"), "fingerprint": props.get("ro.build.fingerprint"),
+    }
     (REPORT / "device-info.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 
@@ -374,10 +381,41 @@ def device_info(dynamic: dict) -> dict:
 def verify_runtime_abi(info: dict) -> None:
     required = target_abis()
     if not required: return
-    supported = {item.strip() for item in str(info.get("abilist") or "").split(",") if item.strip()}; compatible = sorted(supported.intersection(required))
-    result = {"required": required, "device_supported": sorted(supported), "compatible": compatible}
+    supported = {item.strip() for item in str(info.get("abilist") or "").split(",") if item.strip()}
+    direct = sorted(supported.intersection(required))
+    setup_data = read_setup(); mode = str(setup_data.get("runtime_abi_mode") or "")
+    bridge_compatible: list[str] = []
+    native_bridge = str(info.get("native_bridge") or "")
+    bridge_exec = str(info.get("native_bridge_exec") or "")
+    if not direct and mode == "android11-x86_64-multiabi-translation" and native_bridge not in {"", "0"} and bridge_exec == "1":
+        if "arm64-v8a" in required and str(info.get("translated_arm64_isa") or "") == "x86_64": bridge_compatible.append("arm64-v8a")
+        if "armeabi-v7a" in required and str(info.get("translated_arm_isa") or "") in {"x86", "x86_64"}: bridge_compatible.append("armeabi-v7a")
+    compatible = sorted(set(direct + bridge_compatible))
+    basis = "direct-device-abilist" if direct else "android-native-bridge" if bridge_compatible else None
+    result = {
+        "required": required, "device_native_abilist": sorted(supported), "direct_compatible": direct,
+        "native_bridge": native_bridge or None, "native_bridge_exec": bridge_exec or None,
+        "translated_arm64_isa": info.get("translated_arm64_isa"), "translated_arm_isa": info.get("translated_arm_isa"),
+        "ndk_translation_version": info.get("ndk_translation_version"), "berberis_version": info.get("berberis_version"),
+        "bridge_compatible": bridge_compatible, "compatible": compatible, "compatibility_basis": basis,
+        "installation_tested": False, "installation_succeeded": None,
+        "note": "ro.product.cpu.abilist lists native device ABIs; Android 11 x86_64 ARM compatibility may be supplied through the Android native bridge. Successful package installation is the final package-level compatibility check.",
+    }
     (REPORT / "abi-compatibility.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if not compatible: fail(f"emulator booted but exposes none of the package native ABIs {required}; see reports/dynamic/abi-compatibility.json")
+    if not compatible:
+        fail(f"emulator booted but neither native ABI nor Android native-bridge translation establishes compatibility for {required}; see reports/dynamic/abi-compatibility.json")
+
+
+def mark_install_compatibility(success: bool, output: str) -> None:
+    path = REPORT / "abi-compatibility.json"
+    try: data = json.loads(path.read_text()) if path.is_file() else {}
+    except Exception: data = {}
+    data["installation_tested"] = True; data["installation_succeeded"] = bool(success)
+    data["installation_result"] = "Success" if success else (output.strip().splitlines()[-1] if output.strip() else "failed")
+    if success:
+        previous = data.get("compatibility_basis")
+        data["compatibility_basis"] = f"{previous}+adb-install" if previous else "adb-install"
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def package_name() -> str:
@@ -409,13 +447,17 @@ def start() -> None:
     print(f"[*] Emulator PID {proc.pid}; waiting for boot ({setup_data['acceleration']})", flush=True)
     wait_for_boot(dynamic, proc, int(dynamic.get("boot_timeout_seconds", 600)))
 
-    root_result = {"requested": bool(dynamic.get("request_root", True)), "available": False, "output": ""}
-    if dynamic.get("request_root", True):
-        root_proc = adb(dynamic, "root", timeout=60); root_result["output"] = (root_proc.stdout or "").strip(); time.sleep(1); wait_for_adb_reconnect(dynamic, 60)
-        root_result["available"] = "uid=0(" in (adb(dynamic, "shell", "id", timeout=30).stdout or "")
+    initial_id = (adb(dynamic, "shell", "id", timeout=30).stdout or "").strip()
+    root_result = {"requested": bool(dynamic.get("request_root", True)), "available": "uid=0(" in initial_id, "initial_id": initial_id, "final_id": initial_id, "output": "already root" if "uid=0(" in initial_id else ""}
+    if dynamic.get("request_root", True) and not root_result["available"]:
+        root_proc = adb(dynamic, "root", timeout=60); root_result["output"] = (root_proc.stdout or "").strip()
+        if wait_for_adb_reconnect(dynamic, 60):
+            final_id = (adb(dynamic, "shell", "id", timeout=30).stdout or "").strip(); root_result["final_id"] = final_id; root_result["available"] = "uid=0(" in final_id
+        else:
+            root_result["output"] = (root_result["output"] + "; ADB did not reconnect after root request").strip("; ")
     (REPORT / "root-status.json").write_text(json.dumps(root_result, indent=2) + "\n", encoding="utf-8")
     info = device_info(dynamic); verify_runtime_abi(info); start_logcat(dynamic); capture_state(dynamic, "preinstall")
-    print(f"[+] Emulator booted: Android {info.get('release')} API {info.get('sdk')} ABI {info.get('abi')}\n    ABI list: {info.get('abilist')}\n    adb root: {'yes' if root_result['available'] else 'no'}")
+    print(f"[+] Emulator booted: Android {info.get('release')} API {info.get('sdk')} ABI {info.get('abi')}\n    native ABI list: {info.get('abilist')}\n    native bridge: {info.get('native_bridge')} arm64->{info.get('translated_arm64_isa')}\n    root shell: {'yes' if root_result['available'] else 'no'}")
 
 
 def install_app() -> None:
@@ -427,8 +469,9 @@ def install_app() -> None:
         args = ["install-multiple", "-r", "-t"] + (["-g"] if dynamic.get("grant_runtime_permissions", False) else []) + [str(path) for path in apks]
     else:
         args = ["install", "-r", "-t"] + (["-g"] if dynamic.get("grant_runtime_permissions", False) else []) + [str(input_path)]
-    proc = adb(dynamic, *args, timeout=300); (REPORT / "install.txt").write_text(proc.stdout or "", encoding="utf-8")
-    if proc.returncode != 0 or "Success" not in (proc.stdout or ""): fail("APK installation failed; see reports/dynamic/install.txt")
+    proc = adb(dynamic, *args, timeout=300); output = proc.stdout or ""; (REPORT / "install.txt").write_text(output, encoding="utf-8")
+    success = proc.returncode == 0 and "Success" in output; mark_install_compatibility(success, output)
+    if not success: fail("APK installation failed; see reports/dynamic/install.txt and reports/dynamic/abi-compatibility.json")
     (REPORT / "installed-package-paths.txt").write_text(adb(dynamic, "shell", "pm", "path", package, timeout=60).stdout or "", encoding="utf-8"); capture_state(dynamic, "postinstall"); print(f"[+] Installed {package}")
 
 
