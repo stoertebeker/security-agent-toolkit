@@ -154,9 +154,9 @@ def validate_module(root: Path, module: str):
         reverser_path = template / ".opencode" / "agents" / "binary-reverser.md"
         if reverser_path.exists():
             reverser_text = reverser_path.read_text(errors="replace")
-            for token in ("analyzeHeadless", "work/ghidra/", "host `objdump`"):
+            for token in ("analyzeHeadless", "work/ghidra/", "host `objdump`", "max_ghidra_slices_per_hypothesis"):
                 if token not in reverser_text:
-                    errors.append(f"Firmware binary-reverser must enforce managed Ghidra fallback ({token})")
+                    errors.append(f"Firmware binary-reverser must enforce managed/bounded Ghidra fallback ({token})")
             steps_match = re.search(r"(?m)^steps:\s*(\d+)\s*$", reverser_text)
             if not steps_match or int(steps_match.group(1)) < 12:
                 errors.append("Firmware binary-reverser needs at least 12 steps for lightweight triage plus Ghidra escalation")
@@ -164,9 +164,9 @@ def validate_module(root: Path, module: str):
         analyze_path = template / ".opencode" / "commands" / "analyze.md"
         if analyze_path.exists():
             analyze_text = analyze_path.read_text(errors="replace")
-            for token in ("analyzeHeadless", "Ghidra-backed", "host `objdump`"):
+            for token in ("analyzeHeadless", "Ghidra-backed", "host `objdump`", "max_ghidra_slices_per_hypothesis", "Do not ask the operator"):
                 if token not in analyze_text:
-                    errors.append(f"Firmware /analyze must enforce native Ghidra escalation ({token})")
+                    errors.append(f"Firmware /analyze must enforce autonomous bounded native analysis ({token})")
 
         orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
         for field, lower, upper in (("research_max_questions",1,20),("research_max_sources_per_question",1,20),("research_max_report_words",200,3000)):
@@ -181,9 +181,15 @@ def validate_module(root: Path, module: str):
             if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"Firmware TARGET.example.toml must define firmware.{field} in range {lower}..{upper}")
 
         analysis_cfg = target.get("analysis", {}) if isinstance(target, dict) else {}
-        for field in ("max_binary_deep_reviews", "max_service_deep_reviews", "max_update_deep_reviews"):
+        for field, lower, upper in (
+            ("max_binary_deep_reviews",0,50),
+            ("max_service_deep_reviews",0,50),
+            ("max_update_deep_reviews",0,50),
+            ("max_ghidra_slices_per_hypothesis",1,6),
+        ):
             value = analysis_cfg.get(field)
-            if not isinstance(value, int) or not 0 <= value <= 50: errors.append(f"Firmware TARGET.example.toml must define analysis.{field} in range 0..50")
+            if not isinstance(value, int) or not lower <= value <= upper:
+                errors.append(f"Firmware TARGET.example.toml must define analysis.{field} in range {lower}..{upper}")
 
         secret_cfg = target.get("secrets", {}) if isinstance(target, dict) else {}
         for field in ("store_plaintext", "ai_plausibility_triage"):
