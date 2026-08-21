@@ -126,6 +126,7 @@ def validate_module(root: Path, module: str):
             "tools/firmware_baseline.py", "tools/firmware_baseline_core.py",
             "tools/firmware_component_fingerprint.py", "tools/firmware_component_fingerprint_core.py",
             "tools/firmware_secret_scan.py", "tools/firmware_secret_scan_core.py", "tools/firmware_secret_group.py",
+            "tools/firmware_ghidra_slice.py", "tools/ghidra/SatDecompileRefs.java",
             ".opencode/agents/firmware-explorer.md", ".opencode/agents/firmware-service-reviewer.md",
             ".opencode/agents/firmware-update-reviewer.md", ".opencode/agents/firmware-secret-hunter.md",
             ".opencode/agents/firmware-secret-review-worker.md", ".opencode/agents/binary-reverser.md",
@@ -145,6 +146,7 @@ def validate_module(root: Path, module: str):
             "tools/firmware_baseline.py", "tools/firmware_baseline_core.py",
             "tools/firmware_component_fingerprint.py", "tools/firmware_component_fingerprint_core.py",
             "tools/firmware_secret_scan.py", "tools/firmware_secret_scan_core.py", "tools/firmware_secret_group.py",
+            "tools/firmware_ghidra_slice.py",
         ):
             path = template / relative
             if path.exists(): validate_python(path, errors)
