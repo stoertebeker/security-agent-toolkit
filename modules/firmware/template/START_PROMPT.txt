@@ -7,6 +7,7 @@ If deterministic preparation for the current firmware hash is missing/stale, run
 ```text
 python3 tools/firmware_prepare.py
 python3 tools/firmware_baseline.py
+python3 tools/firmware_component_fingerprint.py
 python3 tools/firmware_secret_scan.py
 python3 tools/firmware_secret_group.py
 ```
@@ -25,7 +26,7 @@ Start analysis from deterministic summaries/inventories rather than recursively 
 
 Build the attack surface first. Prioritize startup/configured network management services, web/API/auth flows, credentials/private keys, privileged IPC/SUID/root daemons, update authenticity/rollback/flash paths, and parsers/native binaries with attacker-relevant input.
 
-Do not claim network exposure from configuration alone. Do not call SUID, old versions, dangerous imports, weak hardening, hashes or secret-like names vulnerabilities without the relevant source-to-sink/reachability/trust consequences.
+Do not claim network exposure from configuration alone. Do not call SUID, old versions/version fingerprints, dangerous imports, weak hardening, hashes or secret-like names vulnerabilities without the relevant source-to-sink/reachability/trust consequences.
 
 For secrets, AI triage is group-first from `reports/tool-output/firmware-secret-groups.json`; never load the raw candidate array. Keep exact sensitive material under `reports/sensitive/` only when explicitly enabled.
 
