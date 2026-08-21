@@ -18,6 +18,8 @@ CLASS_HINTS = {
     "private_key_file": "PRIVATE_KEY_MATERIAL",
     "empty_shadow_password": "LOCAL_LOGIN_CREDENTIAL",
     "shadow_credential": "PASSWORD_HASH_OR_CREDENTIAL_FIELD",
+    "passwd_credential": "LOCAL_LOGIN_CREDENTIAL",
+    "uci_credential_option": "HARDCODED_PASSWORD_OR_CONFIGURATION",
     "password_assignment": "HARDCODED_PASSWORD_OR_CONFIGURATION",
     "url_embedded_credentials": "EMBEDDED_SERVICE_CREDENTIAL",
     "aws_access_key": "CLOUD_CREDENTIAL",
