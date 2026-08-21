@@ -73,8 +73,9 @@ def sha256(path: Path) -> str:
 
 def env() -> dict[str, str]:
     result = os.environ.copy()
+    system_paths = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     result.update({
-        "PATH": f"{SAT_HOME / 'bin'}:{result.get('PATH', '')}",
+        "PATH": f"{SAT_HOME / 'bin'}:{system_paths}:{result.get('PATH', '')}",
         "TMPDIR": str(TMP),
         "TMP": str(TMP),
         "TEMP": str(TMP),
