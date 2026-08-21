@@ -25,6 +25,16 @@ function safeIntent(intent) {
   }
 }
 
+function firstToken(value) {
+  try {
+    var s = String(value).trim();
+    if (!s) return '';
+    return s.split(/\s+/)[0];
+  } catch (_) {
+    return '';
+  }
+}
+
 Java.perform(function () {
   try {
     var WebView = Java.use('android.webkit.WebView');
@@ -43,7 +53,51 @@ Java.perform(function () {
       emit('webview.postUrl', { url: safeUrl(url), bodyLength: body ? body.length : 0 });
       return postUrl.call(this, url, body);
     };
+    var evalJs = WebView.evaluateJavascript.overload('java.lang.String', 'android.webkit.ValueCallback');
+    evalJs.implementation = function (script, callback) {
+      emit('webview.evaluateJavascript', { scriptLength: script ? String(script).length : 0 });
+      return evalJs.call(this, script, callback);
+    };
   } catch (e) { emit('hook.error', { hook: 'WebView', error: String(e) }); }
+
+  try {
+    var SslErrorHandler = Java.use('android.webkit.SslErrorHandler');
+    var proceed = SslErrorHandler.proceed.overload();
+    proceed.implementation = function () {
+      emit('tls.webviewSslErrorProceed', {});
+      return proceed.call(this);
+    };
+  } catch (_) {}
+
+  try {
+    var CookieManager = Java.use('android.webkit.CookieManager');
+    var setCookie = CookieManager.setCookie.overload('java.lang.String', 'java.lang.String');
+    setCookie.implementation = function (url, value) {
+      emit('webview.setCookie', { url: safeUrl(url), valueLength: value ? String(value).length : 0 });
+      return setCookie.call(this, url, value);
+    };
+  } catch (_) {}
+
+  try {
+    var URL = Java.use('java.net.URL');
+    var openConnection = URL.openConnection.overload();
+    openConnection.implementation = function () {
+      emit('network.urlConnection', { url: safeUrl(this.toString()) });
+      return openConnection.call(this);
+    };
+  } catch (_) {}
+
+  try {
+    var OkHttpBuilder = Java.use('okhttp3.Request$Builder');
+    var build = OkHttpBuilder.build.overload();
+    build.implementation = function () {
+      var request = build.call(this);
+      try {
+        emit('network.okhttpRequest', { method: String(request.method()), url: safeUrl(request.url().toString()) });
+      } catch (_) {}
+      return request;
+    };
+  } catch (_) {}
 
   try {
     var System = Java.use('java.lang.System');
@@ -62,6 +116,16 @@ Java.perform(function () {
       return dexInit.call(this, dexPath, optDir, libPath, parent);
     };
   } catch (e) { emit('hook.error', { hook: 'DexClassLoader', error: String(e) }); }
+
+  try {
+    var InMemoryDexClassLoader = Java.use('dalvik.system.InMemoryDexClassLoader');
+    InMemoryDexClassLoader.$init.overloads.forEach(function (overload) {
+      overload.implementation = function () {
+        emit('runtime.inMemoryDexClassLoader', { argumentCount: arguments.length });
+        return overload.apply(this, arguments);
+      };
+    });
+  } catch (_) {}
 
   try {
     var Editor = Java.use('android.app.SharedPreferencesImpl$EditorImpl');
@@ -87,11 +151,47 @@ Java.perform(function () {
   } catch (_) {}
 
   try {
+    var SecretKeySpec = Java.use('javax.crypto.spec.SecretKeySpec');
+    var skInit = SecretKeySpec.$init.overload('[B', 'java.lang.String');
+    skInit.implementation = function (key, algorithm) {
+      emit('crypto.secretKeySpec', { algorithm: String(algorithm), keyLength: key ? key.length : 0 });
+      return skInit.call(this, key, algorithm);
+    };
+  } catch (_) {}
+
+  try {
+    var Cipher = Java.use('javax.crypto.Cipher');
+    var cipherGet = Cipher.getInstance.overload('java.lang.String');
+    cipherGet.implementation = function (transformation) {
+      emit('crypto.cipher', { transformation: String(transformation) });
+      return cipherGet.call(this, transformation);
+    };
+  } catch (_) {}
+
+  try {
+    var MessageDigest = Java.use('java.security.MessageDigest');
+    var digestGet = MessageDigest.getInstance.overload('java.lang.String');
+    digestGet.implementation = function (algorithm) {
+      emit('crypto.messageDigest', { algorithm: String(algorithm) });
+      return digestGet.call(this, algorithm);
+    };
+  } catch (_) {}
+
+  try {
     var ContextWrapper = Java.use('android.content.ContextWrapper');
     var startActivity = ContextWrapper.startActivity.overload('android.content.Intent');
     startActivity.implementation = function (intent) {
       emit('intent.startActivity', safeIntent(intent));
       return startActivity.call(this, intent);
+    };
+  } catch (_) {}
+
+  try {
+    var Runtime = Java.use('java.lang.Runtime');
+    var execString = Runtime.exec.overload('java.lang.String');
+    execString.implementation = function (command) {
+      emit('runtime.exec', { executable: firstToken(command), commandLength: command ? String(command).length : 0 });
+      return execString.call(this, command);
     };
   } catch (_) {}
 
