@@ -18,6 +18,28 @@ sat_refuse_workspace_inside_repo() {
   esac
 }
 
+sat_copy_missing_tree() {
+  local source="$1" destination="$2" path relative target
+  mkdir -p "$destination"
+
+  # Copy only entries that do not already exist in project state. Avoid `cp -n`,
+  # whose behavior is not portable across coreutils implementations/versions.
+  while IFS= read -r -d '' path; do
+    relative="${path#"$source"/}"
+    target="$destination/$relative"
+
+    if [[ -d "$path" && ! -L "$path" ]]; then
+      mkdir -p "$target"
+      continue
+    fi
+
+    if [[ ! -e "$target" && ! -L "$target" ]]; then
+      mkdir -p "$(dirname "$target")"
+      cp -a "$path" "$target"
+    fi
+  done < <(find "$source" -mindepth 1 -print0)
+}
+
 sat_init_project() {
   local root="$1" module="$2" requested="$3" root_real dest
   root_real="$(sat_realpath "$root")"
@@ -92,8 +114,7 @@ sat_sync_project() {
   # contain them; never replace existing findings, reports, input or work data.
   for directory in findings reports input work; do
     [[ -d "$template/$directory" ]] || continue
-    mkdir -p "$dest/$directory"
-    cp -an "$template/$directory/." "$dest/$directory/"
+    sat_copy_missing_tree "$template/$directory" "$dest/$directory"
   done
 
   printf 'module = "%s"\ntoolkit_repo = "%s"\n' "$module" "$root_real" > "$metadata"
