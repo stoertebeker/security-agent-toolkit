@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -45,8 +46,7 @@ def load_config() -> tuple[dict, dict]:
         cfg = tomllib.load(handle)
     if not cfg.get("engagement", {}).get("authorized", False):
         fail("engagement.authorized=false")
-    fw = cfg.get("firmware", {})
-    return cfg, fw
+    return cfg, cfg.get("firmware", {})
 
 
 def target_path(fw: dict) -> Path:
@@ -110,10 +110,10 @@ def audit_extraction(root: Path) -> dict:
         for name in filenames:
             path = current_path / name
             try:
-                stat = path.lstat()
+                st = path.lstat()
             except OSError:
                 continue
-            if path.is_symlink():
+            if stat.S_ISLNK(st.st_mode):
                 symlinks += 1
                 try:
                     raw_target = os.readlink(path)
@@ -121,6 +121,8 @@ def audit_extraction(root: Path) -> dict:
                     if target.is_absolute():
                         absolute_links.append({"path": relative(path), "target": raw_target})
                     else:
+                        # Resolve only to classify where the link would point. No
+                        # target content is opened/followed by this audit.
                         resolved = (path.parent / target).resolve(strict=False)
                         try:
                             resolved.relative_to(root_resolved)
@@ -128,9 +130,9 @@ def audit_extraction(root: Path) -> dict:
                             escaping_links.append({"path": relative(path), "target": raw_target})
                 except OSError:
                     pass
-            elif path.is_file():
+            elif stat.S_ISREG(st.st_mode):
                 files += 1
-                total_bytes += int(stat.st_size)
+                total_bytes += int(st.st_size)
             else:
                 specials += 1
 
@@ -147,6 +149,36 @@ def audit_extraction(root: Path) -> dict:
     }
 
 
+def marker_exists_without_following(base: Path, marker: str) -> bool:
+    """Check an extracted target-root marker using lstat only.
+
+    Intermediate symlinks are rejected so a malicious `etc -> /etc` cannot make
+    host `/etc/passwd` count as a firmware rootfs marker. A final symlink can be
+    counted as the marker itself without following its target.
+    """
+    parts = Path(marker).parts
+    current = base
+    for index, part in enumerate(parts):
+        current = current / part
+        try:
+            st = current.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(st.st_mode):
+            return index == len(parts) - 1
+        if index < len(parts) - 1 and not stat.S_ISDIR(st.st_mode):
+            return False
+    return True
+
+
+def real_directory(path: Path) -> bool:
+    try:
+        st = path.lstat()
+        return stat.S_ISDIR(st.st_mode)
+    except OSError:
+        return False
+
+
 def rootfs_candidates(root: Path, limit: int) -> list[dict]:
     scores: dict[Path, dict] = {}
 
@@ -154,52 +186,44 @@ def rootfs_candidates(root: Path, limit: int) -> list[dict]:
         total = 0
         markers = []
         for marker, points in ROOTFS_MARKERS.items():
-            if (path / marker).exists():
+            if marker_exists_without_following(path, marker):
                 total += points
                 markers.append(marker)
         return total, markers
 
-    # Extraction trees are often deeply nested. Marker-bearing directories are
-    # much cheaper to discover than scoring every directory independently.
-    for marker in ("passwd", "busybox", "init", "inittab"):
-        for hit in root.rglob(marker):
-            if hit.is_symlink():
-                continue
-            parts = hit.parts
-            candidate_dirs = [hit.parent]
-            if marker == "passwd" and hit.parent.name == "etc":
-                candidate_dirs.append(hit.parent.parent)
-            elif marker == "busybox" and hit.parent.name == "bin":
-                candidate_dirs.append(hit.parent.parent)
-            elif marker == "init" and hit.parent.name == "sbin":
-                candidate_dirs.append(hit.parent.parent)
-            elif marker == "inittab" and hit.parent.name == "etc":
-                candidate_dirs.append(hit.parent.parent)
-            for candidate in candidate_dirs:
-                if not candidate.is_dir():
-                    continue
-                total, markers = score(candidate)
-                if total:
-                    previous = scores.get(candidate)
-                    if previous is None or total > previous["score"]:
-                        scores[candidate] = {"path": relative(candidate), "score": total, "markers": markers}
+    # Traverse the extraction tree with followlinks=False. Candidate creation is
+    # driven by marker filenames and shallow directory scoring, avoiding Path.rglob
+    # on untrusted symlink-rich trees.
+    for current, dirnames, filenames in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        # Prevent even accidental future os.walk behavior from descending through
+        # symlink directories by pruning them explicitly.
+        dirnames[:] = [name for name in dirnames if real_directory(current_path / name)]
 
-    # Also inspect shallow directories because some root filesystems do not carry
-    # passwd/busybox/init under conventional names.
-    for current, dirnames, _ in os.walk(root, followlinks=False):
-        path = Path(current)
+        candidate_dirs: list[Path] = []
+        if current_path.name == "etc" and ("passwd" in filenames or "inittab" in filenames):
+            candidate_dirs.append(current_path.parent)
+        if current_path.name == "bin" and "busybox" in filenames:
+            candidate_dirs.append(current_path.parent)
+        if current_path.name == "sbin" and "init" in filenames:
+            candidate_dirs.append(current_path.parent)
+
         try:
-            depth = len(path.relative_to(root).parts)
+            depth = len(current_path.relative_to(root).parts)
         except ValueError:
             continue
-        if depth > 8:
-            dirnames[:] = []
-            continue
-        total, markers = score(path)
-        if total:
-            previous = scores.get(path)
+        if depth <= 8:
+            candidate_dirs.append(current_path)
+
+        for candidate in dict.fromkeys(candidate_dirs):
+            if not real_directory(candidate):
+                continue
+            total, markers = score(candidate)
+            if not total:
+                continue
+            previous = scores.get(candidate)
             if previous is None or total > previous["score"]:
-                scores[path] = {"path": relative(path), "score": total, "markers": markers}
+                scores[candidate] = {"path": relative(candidate), "score": total, "markers": markers}
 
     result = sorted(scores.values(), key=lambda item: (-item["score"], item["path"]))
     return result[:limit]
@@ -231,7 +255,7 @@ def write_text_summary(state: dict) -> None:
 
 
 def main() -> int:
-    cfg, fw = load_config()
+    _, fw = load_config()
     image = target_path(fw)
     TMP.mkdir(parents=True, exist_ok=True)
     REPORT.mkdir(parents=True, exist_ok=True)
@@ -242,7 +266,11 @@ def main() -> int:
         try:
             old = json.loads(STATE.read_text())
             primary = old.get("primary_rootfs")
-            if old.get("sha256") == digest and EXTRACT.exists() and (not primary or (ROOT / primary).exists()):
+            primary_ok = True
+            if primary:
+                primary_path = ROOT / primary
+                primary_ok = real_directory(primary_path)
+            if old.get("sha256") == digest and real_directory(EXTRACT) and primary_ok:
                 print("[=] Preparation artifacts are fresh for the current firmware image")
                 return 0
         except Exception:
@@ -277,8 +305,7 @@ def main() -> int:
         unblob_info = {"status": "ok" if proc.returncode == 0 else "degraded", "exit_code": proc.returncode}
 
     audit = audit_extraction(EXTRACT)
-    candidate_limit = int(fw.get("max_rootfs_candidates", 20))
-    candidates = rootfs_candidates(EXTRACT, candidate_limit)
+    candidates = rootfs_candidates(EXTRACT, int(fw.get("max_rootfs_candidates", 20)))
     primary = candidates[0]["path"] if candidates else None
     limitations: list[str] = []
     coverage = "complete"
