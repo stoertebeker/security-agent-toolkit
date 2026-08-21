@@ -50,7 +50,7 @@ def validate_module(root: Path, module: str):
     if module == "apk":
         apk_required = (
             "tools/apk_prepare.py", "tools/apk_secret_scan.py", "tools/apk_secret_group.py", "tools/apk_native_baseline.py",
-            "tools/apk_dynamic.py", "tools/apk_dynamic_evidence.py", "tools/frida_observe.js",
+            "tools/apk_dynamic.py", "tools/apk_dynamic_smoke.py", "tools/apk_dynamic_action.py", "tools/apk_dynamic_evidence.py", "tools/frida_observe.js",
             ".opencode/agents/apk-secret-hunter.md", ".opencode/agents/apk-secret-review-worker.md", ".opencode/agents/apk-native-reverser.md",
             ".opencode/agents/apk-dynamic-analyst.md", ".opencode/agents/apk-researcher.md", ".opencode/agents/apk-web-worker.md",
             ".opencode/commands/research.md", ".opencode/commands/secrets.md", ".opencode/commands/native.md", ".opencode/commands/dynamic-setup.md", ".opencode/commands/dynamic.md",
@@ -58,7 +58,10 @@ def validate_module(root: Path, module: str):
         )
         for relative in apk_required:
             if not (template / relative).exists(): errors.append("APK template missing " + relative)
-        for relative in ("tools/apk_prepare.py", "tools/apk_secret_scan.py", "tools/apk_secret_group.py", "tools/apk_native_baseline.py", "tools/apk_dynamic.py", "tools/apk_dynamic_evidence.py"):
+        for relative in (
+            "tools/apk_prepare.py", "tools/apk_secret_scan.py", "tools/apk_secret_group.py", "tools/apk_native_baseline.py",
+            "tools/apk_dynamic.py", "tools/apk_dynamic_smoke.py", "tools/apk_dynamic_action.py", "tools/apk_dynamic_evidence.py",
+        ):
             path = template / relative
             if path.exists(): validate_python(path, errors)
 
