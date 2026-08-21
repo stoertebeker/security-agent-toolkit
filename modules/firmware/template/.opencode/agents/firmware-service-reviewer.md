@@ -3,7 +3,7 @@ description: Reviews selected firmware network service web auth and privileged I
 mode: subagent
 hidden: true
 temperature: 0.1
-steps: 10
+steps: 12
 permission:
   task: deny
   websearch: deny
