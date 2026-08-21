@@ -11,6 +11,11 @@ permission:
 ---
 Review only the delegated service/web/auth/IPC hypothesis. Start from `reports/tool-output/firmware-services.json`, the relevant init/config files, web handlers/scripts, and the specific backing binary/library when needed.
 
+`firmware-services.json` contains lifecycle/config evidence. Treat its `kind` field precisely:
+- `start` / `start-candidate`: possible startup or launch evidence that still needs surrounding init/control-flow confirmation;
+- `network-config`: bind/listen/port configuration evidence, not proof that the process starts;
+- `stop`: lifecycle evidence only. A `killall`, `pkill`, service stop, or equivalent line MUST NOT be used as startup proof or as evidence that the daemon is running by default.
+
 Establish separately:
 - startup/configuration evidence;
 - bind/listen/interface/port clues where locally available;
