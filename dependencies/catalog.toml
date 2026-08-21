@@ -126,7 +126,7 @@ check = "command -v binwalk"
 kind = "handler"
 handler = "install_python_tool"
 check = "command -v unblob"
-package = "unblob"
+package = "unblob==26.6.4"
 executable = "unblob"
 
 [dependencies.semgrep]
