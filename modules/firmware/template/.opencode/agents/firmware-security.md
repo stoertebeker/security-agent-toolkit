@@ -143,11 +143,14 @@ At completion create `reports/STATIC_SECURITY_REPORT.md`, derived from durable r
 
 ## Analyst summary
 
-Near the top of the final report include a compact `## Analyst summary`, normally 6-12 lines, answering:
-- whether any Critical/High finding was independently confirmed and highest supported severity;
-- at most three most important risks;
-- unusual/high-impact firmware behavior found, or `None established`;
-- concealment/hidden-behavior state with one evidence statement;
-- the most important coverage/runtime/vendor uncertainty.
+Near the top of the final report include a compact `## Analyst summary`, normally 6-12 lines. It must separate validated conclusions from unresolved candidates:
+- state whether any Critical/High finding was independently confirmed and give the **highest confirmed finding severity**; if none were confirmed at that level, say so plainly;
+- if unresolved candidates remain, report the **highest unresolved candidate severity separately**, with its status such as `conditional`, `needs runtime`, or `needs vendor evidence`; never call an unresolved candidate the "highest supported severity";
+- list at most three most important risks, clearly labeling unresolved candidates as unresolved rather than presenting them as confirmed findings;
+- state `Unusual behavior: None established` unless target-specific evidence supports unusual behavior. Ordinary NVRAM dispatch, management handlers, update mechanisms, remote-management components, outbound vendor endpoints, or other expected firmware mechanisms may be summarized separately as `Notable attack-surface behavior`, but must not be framed as unusual merely because they are security-relevant;
+- state the concealment/hidden-behavior state with one evidence statement;
+- state the most important coverage/runtime/vendor uncertainty.
 
-Do not list ordinary expected firmware behavior as unusual merely because it was confirmed. The final OpenCode response must repeat the same compact summary.
+A summary such as `No High finding confirmed; highest supported severity is conditional High` is prohibited because it conflates validated severity with candidate severity. Prefer `Highest confirmed severity: Medium` plus `Highest unresolved candidate: High (conditional)` when that is what the evidence supports.
+
+The final OpenCode response must repeat the same compact summary.
