@@ -130,7 +130,7 @@ def validate_module(root: Path, module: str):
             ".opencode/agents/firmware-secret-review-worker.md", ".opencode/agents/binary-reverser.md",
             ".opencode/agents/firmware-researcher.md", ".opencode/agents/firmware-web-worker.md",
             ".opencode/agents/security-validator.md",
-            ".opencode/commands/prepare.md", ".opencode/commands/secrets.md", ".opencode/commands/services.md",
+            ".opencode/commands/analyze.md", ".opencode/commands/prepare.md", ".opencode/commands/secrets.md", ".opencode/commands/services.md",
             ".opencode/commands/binaries.md", ".opencode/commands/update.md", ".opencode/commands/research.md",
             ".opencode/commands/summary.md",
             "findings/inventory.md", "findings/attack-surface.md", "findings/secrets.md",
