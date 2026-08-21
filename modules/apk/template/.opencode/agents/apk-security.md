@@ -36,7 +36,7 @@ Prioritize exported components, intents/deep links, authentication/authorization
 
 Work evidence-first. A suspicious API, string, exported component, scanner hit, secret-pattern hit, native hardening lead, runtime hook event, hash guess, or decompiler artifact alone is not a finding. Where applicable establish attacker-controlled source -> validation/processing -> security-sensitive sink -> reachability -> realistic impact. If JADX is incomplete for a relevant path, verify against Apktool/Smali.
 
-Use `findings/attack-surface.md` to retain evidence-backed unusual/high-impact behavior and concealment/analysis-resistance indicators. Ordinary build minification/obfuscation is not malicious concealment.
+Use `findings/attack-surface.md` to retain evidence-backed unusual/high-impact behavior and concealment/analysis-resistance indicators. Ordinary build minification/obfuscation is not malicious concealment. Likewise, normal declared deep-link dispatch, an exported component accepting its intended benign invocation, ordinary SDK initialization, or expected library loading are runtime capabilities/reachability evidence rather than unusual behavior unless they produce an unexpected, hidden, privileged, or otherwise materially surprising effect.
 
 ## Dynamic analysis contract
 
@@ -107,7 +107,7 @@ Maintain:
 At completion put a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md`, derived only from validated/durable records. State:
 - whether Critical/High findings were independently confirmed and highest supported severity;
 - at most three most important risks;
-- unusual behavior found or `None established`;
+- unusual behavior found or `None established`; expected platform/app behavior such as a declared deep link successfully dispatching is not unusual by itself and belongs in reachability/runtime observations instead;
 - concealment/analysis-resistance state with one evidence statement;
 - the single most important remaining limitation.
 
