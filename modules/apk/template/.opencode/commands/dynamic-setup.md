@@ -12,8 +12,18 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
    - package native ABIs;
    - runtime ABI mode (`native-x86_64`, no-native, Android-11 multi-ABI compatibility, or unavailable);
    - selected KVM/software/unavailable mode.
-4. If Android Emulator tooling is missing, stop with the exact operator action `./toolkit install apk --with-optional` in the toolkit repository. Do not modify the host hypervisor/container from the workspace.
-5. If an LXC/container has no `/dev/kvm`, explicitly recommend host-side KVM-device passthrough before accepting slow software emulation when the operator controls the host. Do not perform the change from the workspace.
+4. The Android Emulator is a toolkit-managed binary under `$SAT_HOME/bin` (default `~/.local/share/security-agent-toolkit/bin`). It is intentionally not required to be on the operator's interactive shell `PATH`. Therefore `emulator: command not found` in a normal shell does NOT mean the toolkit runtime is missing when the capability probe says `tooling ready: yes` / `emulator_installed: true`.
+
+   To invoke the managed binary manually, use:
+
+   ```text
+   SAT_HOME=${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}
+   "$SAT_HOME/bin/emulator" -accel-check
+   ```
+
+   Do not install a second distro-provided Android Emulator merely because the shell suggests a package such as `google-android-emulator-installer`; that would create a second unmanaged runtime beside the toolkit copy.
+5. If Android Emulator tooling is genuinely missing according to the capability probe, stop with the exact operator action `./toolkit install apk --with-optional` in the toolkit repository. Do not modify the host hypervisor/container from the workspace.
+6. If an LXC/container has no `/dev/kvm`, explicitly recommend host-side KVM-device passthrough before accepting slow software emulation when the operator controls the host. Do not perform the change from the workspace.
 
    For Proxmox VE, provide this bounded host-side example and label placeholders clearly:
 
@@ -34,20 +44,21 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
    ```text
    ls -l /dev/kvm
    test -r /dev/kvm && test -w /dev/kvm
-   emulator -accel-check
+   SAT_HOME=${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}
+   "$SAT_HOME/bin/emulator" -accel-check
    python3 tools/apk_dynamic.py probe
    ```
 
    The expected improvement is `/dev/kvm: rw`, `KVM usable by emulator: yes`, and `selected acceleration: kvm`. If modern `pct ... --devN` is unavailable on an older Proxmox release, do not invent syntax; refer the operator to the documented cgroup-v2 device-passthrough method (`lxc.cgroup2.devices.allow` plus a bind-mounted `/dev/kvm`) for that release.
-6. If the capability probe is unavailable because host architecture/ABI compatibility cannot be supported, preserve the exact reason. LXC/VM without KVM may use same-architecture x86_64 software emulation only when `allow_software_emulation=true`.
-7. Run `python3 tools/apk_dynamic.py setup`.
-8. Run the real boot capability test:
+7. If the capability probe is unavailable because host architecture/ABI compatibility cannot be supported, preserve the exact reason. LXC/VM without KVM may use same-architecture x86_64 software emulation only when `allow_software_emulation=true`.
+8. Run `python3 tools/apk_dynamic.py setup`.
+9. Run the real boot capability test:
 
 ```text
 python3 tools/apk_dynamic_smoke.py
 ```
 
 This must boot the generated AVD through `sys.boot_completed=1`, verify the device ABI list/root state, then shut it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
-9. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility mode, acceleration, boot success and actual root availability.
+10. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility mode, acceleration, boot success and actual root availability.
 
 The setup may download a managed Android system image into `$SAT_HOME/android-sdk`; all AVD/user/runtime state remains project-local under `work/android/`.
