@@ -15,7 +15,7 @@ cd ~/security-work/router-review
 Copy the firmware image into `input/` without changing its format merely to satisfy the toolkit. For example:
 
 ```bash
-cp /path/to/R7000-V1.0.9.42_10.2.44.chk input/
+cp /path/to/firmware.chk input/
 ```
 
 Configure `target/TARGET.toml`:
@@ -32,7 +32,7 @@ research_max_sources_per_question = 5
 research_max_report_words = 900
 
 [firmware]
-path = "input/R7000-V1.0.9.42_10.2.44.chk"
+path = "input/firmware.chk"
 extract_processes = 4
 extract_depth = 10
 extract_timeout_seconds = 3600
@@ -42,6 +42,7 @@ max_rootfs_candidates = 20
 max_binary_deep_reviews = 8
 max_service_deep_reviews = 8
 max_update_deep_reviews = 4
+max_ghidra_slices_per_hypothesis = 3
 
 [secrets]
 store_plaintext = false
@@ -50,9 +51,45 @@ ai_triage_batch_size = 20
 ai_representative_locations = 3
 ```
 
-## Deterministic preparation
+`max_ghidra_slices_per_hypothesis` bounds iterative native reverse engineering for one binary/security hypothesis. Reaching the budget preserves unresolved evidence as `NEEDS VALIDATION` rather than turning one firmware image into an open-ended reverse-engineering project.
 
-Before broad AI analysis run:
+## Normal automated analysis
+
+The normal workflow is intentionally hands-off after workspace configuration:
+
+```bash
+./start.sh
+```
+
+Then run in OpenCode:
+
+```text
+/analyze
+```
+
+`/analyze` owns the complete static workflow. It refreshes stale deterministic artifacts, delegates attack-surface and secret review, selects bounded service/update/native hypotheses, invokes Ghidra automatically when lightweight architecture tooling is insufficient, validates important candidates, performs bounded last-mile research, and produces the final report.
+
+A normal assessment should not require the operator to copy/paste Ghidra, grep, awk, objdump or deterministic preparation commands. Manual execution of those tools is intended for toolkit development/debugging or for inspecting a particular artifact after the automated run.
+
+The high-level flow is:
+
+```text
+firmware image
+    -> deterministic extraction / rootfs discovery / safety audit
+    -> baseline + component + grouped-secret preprocessing
+    -> firmware-explorer + firmware-secret-hunter
+    -> selected service/web/auth, update and native-binary hypotheses
+    -> bounded Ghidra slices where native call flow is materially required
+    -> independent validation of important candidates
+    -> bounded last-mile public research
+    -> durable findings + STATIC_SECURITY_REPORT.md
+```
+
+The explorer reconstructs a focused native boot chain when shell/init evidence is insufficient, rather than treating missing regex startup hits as absence of services. Native analysis is hypothesis-driven and architecture/vendor agnostic; target-specific function addresses, vendor names and one-off regexes must not be added to toolkit code merely to complete one assessment.
+
+## Deterministic preparation and diagnostics
+
+The deterministic stages are run/reused automatically by `/analyze`. They can also be invoked manually when debugging the toolkit or inspecting preprocessing:
 
 ```bash
 python3 tools/firmware_prepare.py
@@ -90,15 +127,9 @@ The baseline outputs leads, not findings. In particular:
 
 The component fingerprint output groups repeated locations by component/version. Secret scanning is group-first: specific key/token formats remain visible, while generic password-like UI/localization noise is suppressed before AI triage. Exact material is retained only under `reports/sensitive/` when explicitly enabled.
 
-## OpenCode analysis
+## Focused commands
 
-Start the orchestrator with:
-
-```bash
-./start.sh
-```
-
-The full run starts from the deterministic summaries instead of recursively feeding the entire rootfs to the primary model. Typical focused commands are:
+For targeted follow-up inside an existing workspace, the module also exposes:
 
 ```text
 /prepare
@@ -110,20 +141,9 @@ The full run starts from the deterministic summaries instead of recursively feed
 /summary
 ```
 
-The main analysis flow is:
+These are useful for focused re-analysis, but `/analyze` is the normal end-to-end command.
 
-```text
-firmware-explorer + firmware-secret-hunter
-    -> integrate durable attack-surface/secret state
-    -> selected service/web/auth, update and native-binary deep dives
-    -> independent validator for important High/Critical candidates
-    -> bounded last-mile public research
-    -> STATIC_SECURITY_REPORT.md
-```
-
-The explorer reconstructs a focused native boot chain when shell/init evidence is insufficient, rather than treating missing regex startup hits as absence of services.
-
-Ghidra is reserved for selected custom/security-sensitive binaries tied to concrete hypotheses. The module does not execute target binaries.
+Ghidra is used only for selected custom/security-sensitive binaries tied to concrete hypotheses. The binary reverser invokes `tools/firmware_ghidra_slice.py` itself, uses a small sequence of xref-driven slices, and stops at the configured convergence budget when remaining evidence requires runtime/topology/hardware/backend facts or broad vendor-specific archaeology.
 
 ## Workspace updates
 
@@ -149,6 +169,8 @@ reports/tool-output/firmware-update-ui-paths.{json,txt}
 reports/tool-output/firmware-component-fingerprints.{json,txt}
 reports/tool-output/firmware-secret-groups.{json,txt}
 reports/tool-output/firmware-binaries.json
+reports/tool-output/ghidra-*.log
+work/ghidra/slices/
 ```
 
 Durable state is maintained under:
