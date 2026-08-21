@@ -17,19 +17,21 @@ Before broad AI review, run or reuse fresh artifacts from:
 ```text
 python3 tools/firmware_prepare.py
 python3 tools/firmware_baseline.py
+python3 tools/firmware_component_fingerprint.py
 python3 tools/firmware_secret_scan.py
 python3 tools/firmware_secret_group.py
 ```
 
 - `firmware_prepare.py` owns input hashing, unblob extraction, Binwalk structure output, rootfs candidate selection, resumability and symlink safety audit.
-- `firmware_baseline.py` owns filesystem/accounts/permissions/service/update/component/ELF inventory and priority leads.
+- `firmware_baseline.py` owns filesystem/accounts/permissions/service/update/package-DB/ELF inventory and priority leads.
+- `firmware_component_fingerprint.py` adds conservative static component/version anchors when package databases are missing or incomplete. Fingerprints are research anchors, not findings.
 - Do not recursively feed the extracted rootfs to an LLM merely to inventory it.
 - Rootfs ambiguity, extraction errors, missing extractor dependencies, opaque/encrypted regions and unsafe target-root symlinks are coverage limitations and must be retained.
 - Absolute firmware symlinks such as `/lib/...` are target-root semantics. Never follow them onto the host filesystem.
 
 ## Evidence rules
 
-A service name, config line, SUID bit, dangerous import, package version, update keyword, YARA/string hit, hash, private-key filename, old library or public CVE is a lead, not a finding.
+A service name, config line, SUID bit, dangerous import, package/version fingerprint, update keyword, YARA/string hit, hash, private-key filename, old library or public CVE is a lead, not a finding.
 
 Where applicable establish:
 
