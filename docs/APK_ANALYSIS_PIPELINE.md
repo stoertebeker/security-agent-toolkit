@@ -49,6 +49,12 @@ Baseline indicators are not vulnerabilities. Deeper `apk-native-reverser`/Ghidra
 
 Inside OpenCode, `/native` refreshes the baseline and performs focused follow-up without repeating the whole assessment.
 
+## Behavior and concealment review
+
+Recon and focused code review also record unusual/high-impact application behavior and concrete concealment or analysis-resistance indicators in `findings/attack-surface.md`.
+
+The analysis must distinguish ordinary build obfuscation/minification from meaningful behavior. Generated names, compressed resources, stripped vendor libraries, or normal framework reflection are not evidence of malicious intent by themselves. Suspicious or deliberate analysis-resistance claims require app-specific evidence.
+
 ## Public research pipeline
 
 Research is local-first. Every externally delegated research question must carry:
@@ -61,6 +67,19 @@ Research is local-first. Every externally delegated research question must carry
 The web worker performs one focused discovery search, then fetches/reads the strongest primary source before broadening search. If the primary fetch fails, it tries at most one alternate primary page before another search. Search snippets remain `SOURCE_LEAD_ONLY` and cannot change findings.
 
 Each RQ has exactly one canonical report under `reports/research/RQ-XX-....md`. The primary correlates verified external facts back to local evidence and uses validation only for material finding changes.
+
+## Analyst summary
+
+Every completed assessment includes a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md` and repeats it in the final OpenCode response.
+
+It answers, without duplicating the full findings report:
+- whether any Critical or High finding was independently confirmed and the highest supported severity;
+- the three most important risks at most;
+- unusual or surprising application behavior, or that none was established;
+- whether concealment/analysis-resistance evidence was absent, ordinary build obfuscation only, suspicious, or confirmed deliberate behavior;
+- the single most important remaining analysis limitation.
+
+This section is an analyst-facing outcome summary, not a replacement for `findings/findings.md`, `findings/attack-surface.md`, or the validation evidence.
 
 ## Targeted regression commands
 
