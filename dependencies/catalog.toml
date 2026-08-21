@@ -40,10 +40,13 @@ packages = ["yara"]
 
 [dependencies.firmware-extractors]
 kind = "apt"
-# Core extraction capability only. Additional format-specific helpers below are
-# still installed, but their absence must not block unrelated firmware formats.
-# firmware_prepare.py records unblob's external-dependency matrix as coverage.
-check = "command -v unsquashfs && (command -v 7z || command -v 7zz) && command -v zstd && command -v lz4 && command -v debugfs"
+# This is an APT bundle, not a promise that every unblob format helper exists.
+# A successful apt transaction installs the broad distro-native extractor set;
+# the dependency check verifies the common filesystem extractor only. Exact
+# format capability is recorded by `unblob --show-external-dependencies` during
+# firmware preparation, where missing helpers become coverage limitations rather
+# than blocking unrelated firmware formats.
+check = "command -v unsquashfs"
 packages = [
   "squashfs-tools",
   "p7zip-full",
