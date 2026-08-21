@@ -23,13 +23,18 @@ def main() -> int:
         "error": None,
     }
     try:
-        runtime.setup()
+        # start() reuses reports/dynamic/setup.json when present and creates the
+        # AVD only when setup has not been run yet. This makes /dynamic-setup
+        # smoke-test the exact AVD it just prepared instead of recreating it.
         runtime.start()
         _, dynamic = runtime.load_config(True)
         result["device_info"] = runtime.device_info(dynamic)
         root_path = REPORT / "root-status.json"
         if root_path.is_file():
             result["root_status"] = json.loads(root_path.read_text())
+        abi_path = REPORT / "abi-compatibility.json"
+        if abi_path.is_file():
+            result["abi_compatibility"] = json.loads(abi_path.read_text())
         result["success"] = True
     except BaseException as exc:
         result["error"] = str(exc)
