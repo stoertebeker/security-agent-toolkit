@@ -36,7 +36,7 @@ All AVD/user state stays under `work/android/`; runtime evidence belongs under `
 
 ## 3. Runtime observation
 
-If `dynamic.allow_frida=true`, run `python3 tools/apk_dynamic.py frida-start`. Frida injected mode requires actual emulator root; the toolkit deploys a matching `frida-server` and does not repackage the APK.
+If `dynamic.allow_frida=true`, inspect `reports/dynamic/root-status.json` after emulator start. Attempt `python3 tools/apk_dynamic.py frida-start` only when root is actually available. If root is unavailable, Frida download/deployment/smoke fails, or the target process cannot be instrumented, record the exact Frida limitation in `findings/dynamic.md`/`findings/coverage.md` and **continue the non-Frida dynamic workflow**. Frida is optional enrichment, not a prerequisite for ADB/PCAP/logcat/UI/state collection. Do not repackage the APK with Frida Gadget.
 
 Then run:
 
@@ -46,7 +46,7 @@ python3 tools/apk_dynamic.py collect
 python3 tools/apk_dynamic_evidence.py
 ```
 
-Use PCAP, logcat, UI dump/screenshot, package/app-op/process state, root-only app-data inventory/process maps, and redacted Frida events as runtime evidence.
+Use PCAP, logcat, UI dump/screenshot, package/app-op/process state, root-only app-data inventory/process maps when available, and redacted Frida events when available as runtime evidence.
 
 ## 4. Targeted active validation
 
