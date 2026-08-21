@@ -46,22 +46,24 @@ Record what was actually reviewed, what was intentionally skipped, and where cov
 - Dynamic enabled:
 - Capability probe result: KVM / software / unavailable
 - Host environment: bare metal / VM / container and detected type
-- `/dev/kvm` / emulator acceleration result:
+- `/dev/kvm` presence/access / emulator `-accel-check` result:
+- Runtime ABI mode: native / no-native / Android-11 API-30 multi-ABI compatibility / unavailable
 - Emulator system image: API / tag / ABI
-- App package ABI compatibility:
+- Real setup boot-smoke result:
+- Booted device ABI list vs package ABI compatibility:
 - Root requested / actually available:
 - APK/XAPK installation result:
-- Launch/UI path exercised:
+- Launch/UI path actually exercised:
 - Network PCAP captured / parsed:
 - Logcat captured:
 - App-data/process-state comparison available:
 - Frida allowed / actually used:
-- Active validation allowed / actions actually performed:
+- Active validation allowed / audited actions actually performed:
 - Static hypotheses exercised at runtime:
 - Credential/login/features not exercised:
-- Emulator-specific limitations (software speed, missing Google services, image mismatch, root/Frida):
+- Emulator limitations: software speed / API-30 fallback / Google services / image / root / Frida:
 
-Do not record runtime behavior as absent merely because it was not observed. State whether the relevant feature was actually exercised.
+Do not record runtime behavior as absent merely because it was not observed. State whether the relevant feature/action was actually exercised. Android-11 multi-ABI mode is compatibility coverage on API 30, not newer target-OS coverage.
 
 ## Security-area coverage
 
