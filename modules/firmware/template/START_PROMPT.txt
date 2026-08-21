@@ -1,5 +1,40 @@
-Analyze the authorized firmware configured in `target/TARGET.toml`. Identify/extract it, build an attack-surface map, then continue with prioritized deep dives.
+Analyze the authorized firmware configured in `target/TARGET.toml`.
 
-Read `orchestration.max_parallel_agents` from TARGET.toml and never exceed that many concurrently executing delegated tasks; default to 2 when absent.
+Read `[orchestration]`, `[firmware]`, `[analysis]`, and `[secrets]` first. Respect `max_parallel_agents`, defaulting to 2.
 
-Keep the primary context small, research selectively, and independently validate important findings. Static analysis only.
+If deterministic preparation for the current firmware hash is missing/stale, run:
+
+```text
+python3 tools/firmware_prepare.py
+python3 tools/firmware_baseline.py
+python3 tools/firmware_secret_scan.py
+python3 tools/firmware_secret_group.py
+```
+
+Reuse fresh artifacts rather than repeating expensive extraction. Treat extraction/rootfs ambiguity or unblob errors as degraded coverage, not as permission to silently assume a complete filesystem.
+
+Start analysis from deterministic summaries/inventories rather than recursively loading the extracted rootfs into the primary context. Maintain durable records throughout:
+- `findings/inventory.md`
+- `findings/attack-surface.md`
+- `findings/secrets.md`
+- `findings/update-security.md`
+- `findings/findings.md`
+- `findings/coverage.md`
+- `findings/research.md`
+- `findings/analysis-log.md`
+
+Build the attack surface first. Prioritize startup/configured network management services, web/API/auth flows, credentials/private keys, privileged IPC/SUID/root daemons, update authenticity/rollback/flash paths, and parsers/native binaries with attacker-relevant input.
+
+Do not claim network exposure from configuration alone. Do not call SUID, old versions, dangerous imports, weak hardening, hashes or secret-like names vulnerabilities without the relevant source-to-sink/reachability/trust consequences.
+
+For secrets, AI triage is group-first from `reports/tool-output/firmware-secret-groups.json`; never load the raw candidate array. Keep exact sensitive material under `reports/sensitive/` only when explicitly enabled.
+
+Use focused subagents and keep the primary context small. Respect `analysis.max_service_deep_reviews`, `max_binary_deep_reviews`, and `max_update_deep_reviews` as ceilings. Use Ghidra only for selected binaries tied to concrete hypotheses. Never execute target binaries.
+
+Research is local-first and bounded. Every RQ must carry 2-5 concrete non-sensitive local facts including component/version/startup/use or useful negative evidence plus the exact external fact needed. Search snippets cannot change findings without fetched/read primary support and local applicability.
+
+Important High/Critical candidate findings require independent validation.
+
+At completion create `reports/STATIC_SECURITY_REPORT.md`. Include extraction/coverage limitations, validation status, update-security conclusions, grouped secret/material coverage, native/deep-review coverage, material research changes, and a compact `## Analyst summary` near the top.
+
+The analyst summary must state whether any Critical/High finding was independently confirmed, highest supported severity, at most three most important risks, unusual/high-impact behavior or `None established`, concealment/hidden-behavior state with evidence, and the most important remaining runtime/topology/bootloader/vendor uncertainty. Repeat it in the final OpenCode response.
