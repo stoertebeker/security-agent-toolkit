@@ -4,10 +4,12 @@
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
@@ -33,10 +35,30 @@ import java.util.Set;
 
 public class SatDecompileRefs extends GhidraScript {
     private static final int MAX_C_CHARS = 30000;
+    private static final int XREF_CONTEXT_BEFORE = 4;
+    private static final int XREF_CONTEXT_AFTER = 6;
+    private static final int MAX_XREF_CONTEXTS_PER_FUNCTION = 12;
+
+    private static class DirectRef {
+        final String needle;
+        final Address fromAddress;
+        final String target;
+
+        DirectRef(String needle, Address fromAddress, String target) {
+            this.needle = needle;
+            this.fromAddress = fromAddress;
+            this.target = target;
+        }
+
+        String key() {
+            return needle + "@" + fromAddress + "->" + target;
+        }
+    }
 
     private static class Candidate {
         final LinkedHashSet<String> reasons = new LinkedHashSet<>();
         final Set<String> directNeedles = new HashSet<>();
+        final LinkedHashMap<String, DirectRef> directRefs = new LinkedHashMap<>();
         int score = 0;
         boolean direct = false;
     }
@@ -60,7 +82,9 @@ public class SatDecompileRefs extends GhidraScript {
         String reason,
         int score,
         String needle,
-        boolean direct
+        boolean direct,
+        Address fromAddress,
+        String target
     ) {
         if (function == null) {
             return;
@@ -74,13 +98,17 @@ public class SatDecompileRefs extends GhidraScript {
             if (needle != null) {
                 candidate.directNeedles.add(needle);
             }
+            if (needle != null && fromAddress != null) {
+                DirectRef directRef = new DirectRef(needle, fromAddress, target == null ? "" : target);
+                candidate.directRefs.putIfAbsent(directRef.key(), directRef);
+            }
         }
     }
 
     private void addReferencesToAddress(
         Map<Function, Candidate> selected,
         ReferenceManager references,
-        ghidra.program.model.address.Address address,
+        Address address,
         FunctionManager functions,
         String needle,
         String reason
@@ -91,9 +119,52 @@ public class SatDecompileRefs extends GhidraScript {
             Function caller = functions.getFunctionContaining(reference.getFromAddress());
             addReason(
                 selected, caller, reason + " via " + reference.getFromAddress(),
-                directScore(needle), needle, true
+                directScore(needle), needle, true,
+                reference.getFromAddress(), address.toString()
             );
         }
+    }
+
+    private static String instructionText(Instruction instruction) {
+        if (instruction == null) {
+            return "";
+        }
+        return instruction.getAddress() + "  " + instruction.toString();
+    }
+
+    private void writeXrefContext(PrintWriter writer, Listing listing, DirectRef directRef) {
+        writer.println("### xref '" + directRef.needle + "' @ " + directRef.fromAddress +
+            (directRef.target.isBlank() ? "" : " -> " + directRef.target));
+        List<Instruction> before = new ArrayList<>();
+        Instruction current = listing.getInstructionAt(directRef.fromAddress);
+        if (current == null) {
+            current = listing.getInstructionContaining(directRef.fromAddress);
+        }
+        Instruction cursor = current;
+        for (int i = 0; i < XREF_CONTEXT_BEFORE && cursor != null; i++) {
+            cursor = listing.getInstructionBefore(cursor.getAddress());
+            if (cursor != null) {
+                before.add(0, cursor);
+            }
+        }
+        for (Instruction instruction : before) {
+            writer.println("  " + instructionText(instruction));
+        }
+        if (current != null) {
+            writer.println("> " + instructionText(current));
+            cursor = current;
+            for (int i = 0; i < XREF_CONTEXT_AFTER; i++) {
+                cursor = listing.getInstructionAfter(cursor.getAddress());
+                if (cursor == null) {
+                    break;
+                }
+                writer.println("  " + instructionText(cursor));
+            }
+        }
+        else {
+            writer.println("  (no decoded instruction at reference address)");
+        }
+        writer.println();
     }
 
     @Override
@@ -155,7 +226,8 @@ public class SatDecompileRefs extends GhidraScript {
                     addReason(
                         selected, caller,
                         "symbol match '" + needle + "' -> " + name + " via " + reference.getFromAddress(),
-                        directScore(needle), needle, true
+                        directScore(needle), needle, true,
+                        reference.getFromAddress(), symbol.getAddress().toString()
                     );
                 }
             }
@@ -171,7 +243,7 @@ public class SatDecompileRefs extends GhidraScript {
                 addReason(
                     selected, caller,
                     "direct caller of " + callee.getName() + " @ " + callee.getEntryPoint(),
-                    15, null, false
+                    15, null, false, null, null
                 );
             }
         }
@@ -222,6 +294,19 @@ public class SatDecompileRefs extends GhidraScript {
                 writer.println("reasons:");
                 for (String reason : candidate.reasons) {
                     writer.println("- " + reason);
+                }
+                if (!candidate.directRefs.isEmpty()) {
+                    writer.println();
+                    writer.println("xref instruction contexts:");
+                    int shown = 0;
+                    for (DirectRef directRef : candidate.directRefs.values()) {
+                        if (shown >= MAX_XREF_CONTEXTS_PER_FUNCTION) {
+                            writer.println("(additional xref contexts omitted)");
+                            break;
+                        }
+                        writeXrefContext(writer, listing, directRef);
+                        shown++;
+                    }
                 }
 
                 DecompileResults results = decompiler.decompileFunction(function, decompileTimeout, monitor);
