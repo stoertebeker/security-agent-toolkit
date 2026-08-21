@@ -79,10 +79,6 @@ install_opencode() {
 
 install_uv() {
   mkdir -p "$SAT_HOME/bin" "$SAT_HOME/cache/uv" "$SAT_HOME/python" "$SAT_HOME/python-tools"
-
-  # UV_UNMANAGED_INSTALL is intended for a caller-managed installation prefix.
-  # It avoids modifying the user's shell configuration and places uv/uvx directly
-  # in the toolkit runtime.
   curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_UNMANAGED_INSTALL="$SAT_HOME/bin" sh
 
@@ -100,9 +96,6 @@ install_python_tool() {
   sat_install_dependency uv
   sat_uv_environment
   mkdir -p "$UV_TOOL_BIN_DIR" "$UV_TOOL_DIR" "$UV_PYTHON_INSTALL_DIR" "$UV_CACHE_DIR"
-
-  # Pin the toolkit's Python-tool baseline instead of relying on the distribution's
-  # system Python. uv downloads a managed CPython when necessary.
   "$SAT_HOME/bin/uv" python install 3.12
   "$SAT_HOME/bin/uv" tool install --force --python 3.12 "$package"
 
@@ -179,6 +172,53 @@ install_apktool() {
   curl -fL "$url" -o "$SAT_HOME/tools/apktool/apktool.jar"
   printf '#!/usr/bin/env bash\nexec "%s/bin/java" -jar "%s/tools/apktool/apktool.jar" "$@"\n' "$SAT_HOME" "$SAT_HOME" > "$SAT_HOME/bin/apktool"
   chmod +x "$SAT_HOME/bin/apktool"
+}
+
+install_android_emulator() {
+  sat_install_dependency jdk21
+
+  case "$(uname -m)" in
+    x86_64) ;;
+    *)
+      echo "Managed Android Emulator runtime currently supports Linux x86_64 hosts only; static APK analysis remains supported on this host." >&2
+      return 1
+      ;;
+  esac
+
+  # The Android emulator bundles its own QEMU engine. These are only userspace
+  # runtime libraries; this installer deliberately does not install libvirt/KVM
+  # or alter host/container virtualization settings.
+  sat_sudo apt-get update
+  sat_sudo apt-get install -y \
+    libdbus-1-3 libfontconfig1 libgl1 libnss3 libvulkan1 \
+    libx11-6 libx11-xcb1 libxcomposite1 libxcursor1 libxdamage1 libxi6 \
+    libxkbcommon-x11-0 libxrandr2 libxtst6 libxcb1 libxcb-cursor0
+
+  local sdk="$SAT_HOME/android-sdk"
+  local archive="$SAT_HOME/cache/android-commandlinetools.zip"
+  local extract="$SAT_HOME/cache/android-commandlinetools-extract"
+  local cli_version="15859902"
+  local url="https://dl.google.com/android/repository/commandlinetools-linux-${cli_version}_latest.zip"
+
+  mkdir -p "$SAT_HOME/cache" "$SAT_HOME/bin" "$sdk/cmdline-tools"
+  curl -fL "$url" -o "$archive"
+  rm -rf "$extract" "$sdk/cmdline-tools/latest"
+  mkdir -p "$extract" "$sdk/cmdline-tools/latest"
+  unzip -q "$archive" -d "$extract"
+  cp -a "$extract/cmdline-tools/." "$sdk/cmdline-tools/latest/"
+  rm -rf "$extract"
+
+  export ANDROID_SDK_ROOT="$sdk" ANDROID_HOME="$sdk"
+  export JAVA_HOME="$SAT_HOME/java/jdk-21"
+  export PATH="$JAVA_HOME/bin:$sdk/cmdline-tools/latest/bin:$sdk/platform-tools:$sdk/emulator:$PATH"
+
+  yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" --licenses >/dev/null || true
+  "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" --install "platform-tools" "emulator"
+
+  ln -sf "$sdk/cmdline-tools/latest/bin/sdkmanager" "$SAT_HOME/bin/sdkmanager"
+  ln -sf "$sdk/cmdline-tools/latest/bin/avdmanager" "$SAT_HOME/bin/avdmanager"
+  ln -sf "$sdk/platform-tools/adb" "$SAT_HOME/bin/adb"
+  ln -sf "$sdk/emulator/emulator" "$SAT_HOME/bin/emulator"
 }
 
 install_rust() {
