@@ -5,20 +5,30 @@ temperature: 0.1
 ---
 Read AGENTS.md and docs before changes.
 
-New modules must add/reuse central dependency IDs, support all six platforms or explicitly surface a validation problem, keep OpenCode core, avoid emulation software, preserve LXC compatibility, local temp data and independent validation. Never add project data.
+New modules must add/reuse central dependency IDs, support all six static-analysis platforms or explicitly surface a validation problem, keep OpenCode core, preserve LXC compatibility, local temp data and independent validation. Never add project data.
 
-Every new project template must expose `[orchestration].max_parallel_agents` in `target/TARGET.example.toml`, defaulting to 2, and primary/coordinator prompts must honor it. Do not hardcode a fixed parallel-agent count in module prompts.
+Static module functionality must remain free of mandatory emulation/hypervisor/container stacks. The APK module is the explicit exception for one optional capability-gated `android-emulator` runtime: it must stay optional, must not reconfigure the host/KVM/container, must probe actual runtime capability first, and must keep AVD/user state project-local. Do not generalize this exception to other modules without updating the module contract.
 
-Default to `subagent_depth=1`. Use depth 2 only for a deliberate bounded coordinator -> worker pattern that materially protects parent context. In that case, add explicit `permission.task` allowlists, deny further task spawning on leaf workers, set finite `steps` limits, and document the reason. Never create unrestricted recursive agent trees.
+Every project template must expose `[orchestration].max_parallel_agents` in `target/TARGET.example.toml`, defaulting to 2, and primary/coordinator prompts must honor it.
 
-When a module needs public research, use local-first orchestration. Every delegated RQ must carry a compact non-sensitive local-applicability packet: why it matters, 2-5 concrete local facts including useful negative evidence, and the exact external fact still needed. If that packet is incomplete, do not make a web worker infer applicability. Prefer a coordinator + short-lived web-worker pattern, deny web access globally, and bound question/source/report size. Workers should discover once, fetch/read the strongest primary source before broadening search, and treat search snippets as leads. Each question gets exactly one canonical detail artifact; public research must never expose sensitive assessment data or replace local/validator confirmation.
+Default to `subagent_depth=1`. Use depth 2 only for a deliberate bounded coordinator -> worker pattern that materially protects parent context. Add explicit task allowlists, deny further task spawning on leaf workers, set finite step limits, and never create recursive trees.
 
-When a security class can benefit from deterministic preprocessing, prefer reproducible tooling first and agent interpretation second. Large raw scanner outputs should remain behind a deterministic boundary: filter/group/deduplicate before LLM review. Deterministic pattern hits and priorities are leads, not findings.
+When a module needs public research, use local-first orchestration. Every delegated RQ must carry why it matters, 2-5 concrete non-sensitive local facts including useful negative evidence, and the exact external fact still needed. Prefer bounded coordinator + leaf web-worker design. Workers should discover once, fetch/read the strongest primary source before broadening search, and treat search snippets as leads only.
 
-Credential workflows should distinguish truly confidential/privileged credentials from client-shipped signing material, client-SDK authentication material and public client configuration; names such as `secret` or `clientSecret` are not confidentiality proofs. Sensitive raw values stay in explicitly opted-in local sensitive artifacts and never public research.
+When a security class can benefit from deterministic preprocessing, prefer reproducible tooling first and agent interpretation second. Large raw scanner outputs remain behind a deterministic boundary: filter/group/deduplicate before LLM review. Pattern hits/priorities are leads, not findings.
 
-Native workflows should use a cheap deterministic baseline across all base/split libraries before expensive reversing. Record architecture/hardening/JNI/import/string leads, distinguish baseline from deeper review in coverage, and reserve Ghidra for app-relevant/reachable or otherwise plausible security-sensitive paths.
+Credential workflows distinguish confidential/privileged credentials from client signing material, client-SDK authentication material and public configuration; names such as `secret` or `clientSecret` are not confidentiality proofs. Sensitive raw values stay in explicitly opted-in local sensitive artifacts and never public research/dynamic instrumentation output.
 
-Each module should define durable reporting/coverage/provenance expectations so a final human-readable report does not replace structured analysis state. Provenance should distinguish delegation layers and record result paths/peak concurrency without duplicating full findings.
+Native workflows use a cheap deterministic baseline across base/split libraries before expensive reversing. Distinguish baseline from deeper review and reserve Ghidra for app-relevant/reachable paths.
 
-Run toolkit validation and repo-guard before considering changes complete.
+Optional emulator-backed dynamic workflows must:
+- probe bare metal/VM/container, `/dev/kvm`, emulator self-check and package ABI compatibility before setup;
+- run a real boot smoke test when setup claims the runtime is usable;
+- report same-architecture software emulation as slow rather than pretending it is acceleration;
+- use only documented compatible ABI strategies; the APK Android-11 x86_64 multi-ABI fallback is compatibility coverage and must be labeled as API-30 coverage;
+- keep SDK/system images in managed runtime and AVD/user/capture state in the project;
+- verify root/Frida rather than assume them;
+- preprocess runtime evidence before LLM interpretation;
+- keep active validation bounded/audited and inside the module's runtime scope, never silently expanding APK runtime testing into backend/API mutation.
+
+Each module defines durable reporting/coverage/provenance expectations so human-readable reports do not replace structured state. Run toolkit validation and repo-guard before considering changes complete.
