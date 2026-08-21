@@ -60,6 +60,24 @@ def rel(path: Path) -> str:
         return str(path)
 
 
+def redact_line(line: str) -> str:
+    text = line.strip().replace("\x00", "")
+    text = re.sub(
+        r"(?i)((?:password|passwd|pwd|passphrase|psk|wpa_passphrase|secret|token|api[_-]?key|client_secret|app_secret)\s*(?:=|:)\s*)[^\s,;]+",
+        r"\1<redacted>", text,
+    )
+    text = re.sub(
+        r"(?i)(option\s+(?:key|password|passwd|psk|wpa_passphrase)\s+)[\"'][^\"']+[\"']",
+        r"\1'<redacted>'", text,
+    )
+    text = re.sub(
+        r"(?i)(--(?:password|passwd|passphrase|psk|secret|token|api[_-]?key)\s+)\S+",
+        r"\1<redacted>", text,
+    )
+    text = re.sub(r"(://[^\s/:@]{1,80}:)[^\s/@]+@", r"\1<redacted>@", text)
+    return text[:300]
+
+
 def lstat_mode(path: Path) -> int | None:
     try:
         return path.lstat().st_mode
@@ -263,7 +281,7 @@ def service_leads(path: Path, text: str) -> list[dict]:
         lower = stripped.lower()
         matched = sorted(name for name in KNOWN_DAEMONS if re.search(rf"(^|[/\s]){re.escape(name)}($|\s)", lower))
         if matched or any(token in lower for token in ("listen", "bind", "port=", "--port", " -p ")):
-            leads.append({"path": rel(path), "line": number, "daemons": matched, "text": stripped[:300]})
+            leads.append({"path": rel(path), "line": number, "daemons": matched, "text": redact_line(stripped)})
     return leads
 
 
@@ -273,7 +291,7 @@ def update_leads(path: Path, text: str) -> list[dict]:
         lower = line.lower()
         matches = [keyword for keyword in UPDATE_KEYWORDS if keyword in lower]
         if matches:
-            result.append({"path": rel(path), "line": number, "keywords": matches[:5], "text": line.strip()[:300]})
+            result.append({"path": rel(path), "line": number, "keywords": matches[:5], "text": redact_line(line)})
     return result
 
 
@@ -415,7 +433,7 @@ def main() -> int:
     binary_leads.sort(key=lambda item: (-item["score"], item["path"]))
 
     baseline = {
-        "schema_version": 2,
+        "schema_version": 3,
         "rootfs": rel(rootfs),
         "preparation_coverage": prep.get("coverage"),
         "counts": {
