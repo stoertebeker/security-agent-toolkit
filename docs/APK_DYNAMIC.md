@@ -1,0 +1,212 @@
+# APK dynamic analysis
+
+The APK module's dynamic v1 workflow is deliberately self-contained: it uses a toolkit-managed Android Emulator and does not require an external Android device.
+
+## Install
+
+Static-only installation remains unchanged:
+
+```bash
+./toolkit install apk
+```
+
+Dynamic extras are explicit:
+
+```bash
+./toolkit install apk --with-optional
+./toolkit doctor apk
+```
+
+This installs the managed Android command-line tools/emulator/platform-tools under `$SAT_HOME/android-sdk` plus local PCAP parsing support. System images are installed on demand.
+
+The toolkit does not install libvirt, modify KVM permissions, enable nested virtualization, change LXC configuration, or pass `/dev/kvm` into a container.
+
+## Configure
+
+Enable dynamic analysis in the project `target/TARGET.toml`:
+
+```toml
+[dynamic]
+enabled=true
+backend="auto"
+api_level=36
+image_tag="auto"
+allow_software_emulation=true
+allow_android11_multiabi_fallback=true
+headless=true
+wipe_data_on_start=true
+grant_runtime_permissions=false
+request_root=true
+allow_frida=true
+allow_active_validation=false
+memory_mb=4096
+cores=4
+boot_timeout_seconds=600
+observation_seconds=15
+emulator_port=5554
+```
+
+Start conservatively with `allow_active_validation=false`. Frida is also optional; if the chosen image does not provide root, the workflow records Frida as unavailable rather than repackaging the target.
+
+## Environment probe
+
+Run:
+
+```bash
+python3 tools/apk_dynamic.py probe
+```
+
+Outputs:
+
+```text
+reports/tool-output/dynamic-capabilities.txt
+reports/tool-output/dynamic-capabilities.json
+```
+
+The probe distinguishes:
+
+| Environment | KVM result | Toolkit behavior |
+|---|---|---|
+| bare metal + usable `/dev/kvm` | accelerated | KVM |
+| VM + nested virtualization exposed as `/dev/kvm` | accelerated | KVM |
+| VM without `/dev/kvm` | not accelerated | software x86_64 if allowed; otherwise unavailable |
+| LXC/container + `/dev/kvm` passed through and usable | accelerated | KVM |
+| LXC/container without `/dev/kvm` | not accelerated | software x86_64 if allowed; otherwise unavailable |
+| non-x86_64 host | dynamic v1 unsupported | unavailable; static analysis remains supported |
+
+`vmx`/`svm` CPU flags are diagnostic only. KVM mode is selected only when `emulator -accel-check` succeeds.
+
+## ABI compatibility
+
+The package's prepared native ABIs are part of the runtime decision.
+
+On x86_64:
+
+1. x86_64 native library present: use x86_64 system image at the requested/target API where available.
+2. no native libraries: use x86_64 normally.
+3. native code exists but no x86_64 library, and `minSdk <= 30`: when enabled, use Android 11/API 30 x86_64 multi-ABI compatibility. Android 11 x86_64 emulator images support x86, x86_64, ARMv7 and ARM64 app binaries.
+4. no compatible documented path: report `UNAVAILABLE`.
+
+After boot, the toolkit checks the emulator's actual `ro.product.cpu.abilist` against the package requirements before installing the app. A theoretical image choice is therefore not enough to pass setup.
+
+The Android-11 fallback validates runtime behavior on API 30 only. Do not generalize the result to Android 16/17 platform-specific behavior.
+
+## Setup smoke test
+
+Inside OpenCode:
+
+```text
+/dynamic-setup
+```
+
+or manually:
+
+```bash
+python3 tools/apk_dynamic.py setup
+python3 tools/apk_dynamic_smoke.py
+```
+
+The smoke test performs a real boot, waits for `sys.boot_completed=1`, verifies ABI/root/device properties, then shuts down. This is the decisive test for LXC/VM restrictions that are not visible from CPU flags or `/dev/kvm` alone.
+
+Review:
+
+```text
+reports/dynamic/setup.json
+reports/dynamic/setup-smoke.json
+reports/dynamic/device-info.json
+reports/dynamic/root-status.json
+reports/dynamic/abi-compatibility.json
+reports/dynamic/emulator.log
+```
+
+## Full run
+
+Inside OpenCode:
+
+```text
+/dynamic
+```
+
+The normal flow is:
+
+```text
+probe -> setup -> boot -> ABI verify -> install -> launch
+      -> optional Frida -> collect -> deterministic evidence summary
+      -> dynamic analyst -> validator for material changes
+```
+
+The XAPK path installs the prepared base plus all split APKs with `adb install-multiple`.
+
+## Runtime evidence
+
+Collected data includes:
+
+- emulator PCAP (`-tcpdump`);
+- logcat;
+- current UI hierarchy and screenshot;
+- package/app-op/activity/process state;
+- root-only app-data file inventory and process maps when root is actually available;
+- installed package paths;
+- redacted Frida events when enabled;
+- audit trail of active local actions.
+
+`tools/apk_dynamic_evidence.py` reduces these artifacts into a bounded deterministic summary before the dynamic agent reads them.
+
+Encrypted PCAP traffic remains encrypted. Endpoint/API metadata may also come from redacted Frida hooks, but this workflow does not automatically install a MITM CA or disable TLS validation.
+
+## Frida
+
+When `allow_frida=true` and root is available, the toolkit downloads a `frida-server` matching the installed Frida client and emulator ABI, deploys it to `/data/local/tmp`, and starts redacted observation.
+
+No Frida Gadget APK repackaging is used.
+
+Hooks deliberately record metadata rather than secrets: URL without query/fragment, method, bridge/library names, storage key/table names and value lengths, crypto algorithm/key length, Dex/class loading, subprocess executable, and debugger-check execution.
+
+## Active validation
+
+When `allow_active_validation=true`, use the audited wrapper only:
+
+```bash
+python3 tools/apk_dynamic_action.py deep-link 'myapp://path'
+python3 tools/apk_dynamic_action.py component activity com.example.SomeActivity
+python3 tools/apk_dynamic_action.py component service com.example.SomeService
+python3 tools/apk_dynamic_action.py component receiver com.example.SomeReceiver
+python3 tools/apk_dynamic_action.py tap 500 900
+python3 tools/apk_dynamic_action.py keyevent KEYCODE_BACK
+python3 tools/apk_dynamic_action.py text 'non-sensitive-test-input'
+```
+
+Custom deep links must use a scheme declared in the decoded manifest and are package-restricted. Components must be declared in the manifest. UI text is not copied into the action log; only its length is recorded.
+
+This is deliberately not an API pentest gate. Do not use it for request replay/mutation, IDOR testing or provider/backend attacks.
+
+## Cleanup
+
+```bash
+python3 tools/apk_dynamic.py frida-stop
+python3 tools/apk_dynamic.py stop
+```
+
+AVD state remains under `work/android/` and can be removed with the project when no longer needed.
+
+## Common outcomes
+
+### LXC without `/dev/kvm`
+
+Expected probe note: container has no `/dev/kvm`. If software emulation is enabled, the x86_64 AVD may still be tried. `/dynamic-setup` performs the real boot test. For KVM acceleration, the required fix is host-side `/dev/kvm` passthrough; the toolkit intentionally does not perform it.
+
+### VM without nested virtualization
+
+Usually `/dev/kvm` is absent and `emulator -accel-check` fails. Same-architecture software mode remains possible when enabled, but may be very slow.
+
+### ARM64-only XAPK on x86_64
+
+If `minSdk <= 30`, expect `android11-x86_64-multiabi-translation` and API 30. This preserves x86_64/KVM execution while supplying ARM64 app ABI compatibility. If `minSdk > 30`, dynamic v1 reports no documented compatible runtime.
+
+### App requires Google Play services
+
+`image_tag="auto"` prefers AOSP/default for analysis/root and can fall back to `google_apis`. If functionality depends on Google services, set `image_tag="google_apis"` and let the boot/root probe record the resulting capability. Play Store images are intentionally outside this flow.
+
+### Root unavailable
+
+Continue ADB-based runtime observation. Frida injected mode and root-only app-data/process-map collection are recorded as unavailable.
