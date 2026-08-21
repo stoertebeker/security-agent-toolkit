@@ -3,7 +3,7 @@ description: Maps firmware attack surface from deterministic preparation/baselin
 mode: subagent
 hidden: true
 temperature: 0.1
-steps: 8
+steps: 12
 permission:
   task: deny
   websearch: deny
