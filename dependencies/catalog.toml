@@ -53,6 +53,11 @@ kind = "handler"
 handler = "install_android_emulator"
 check = "test -x \"$SAT_HOME/bin/emulator\" && test -x \"$SAT_HOME/bin/sdkmanager\" && test -x \"$SAT_HOME/bin/avdmanager\" && test -x \"$SAT_HOME/bin/adb\""
 
+[dependencies.tcpdump]
+kind = "apt"
+check = "command -v tcpdump"
+packages = ["tcpdump"]
+
 [dependencies.nmap]
 kind = "apt"
 check = "command -v nmap"
