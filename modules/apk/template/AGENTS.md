@@ -18,10 +18,18 @@
 
 ## Evidence rules
 
-A suspicious string, dangerous API, exported component, scanner hit, secret-pattern hit, native hardening indicator, hash-format guess, or decompiler artifact is only a lead.
+A suspicious string, dangerous API, exported component, scanner hit, secret-pattern hit, native hardening indicator, hash-format guess, obfuscated name, or decompiler artifact is only a lead.
 Where applicable establish attacker-controlled source -> processing/validation -> security-sensitive sink -> reachability -> impact.
 Distinguish CONFIRMED, LIKELY, NEEDS VALIDATION and FALSE POSITIVE.
 If JADX output is incomplete or suspicious, verify the relevant path against Apktool/Smali before relying on it.
+
+## Behavior and concealment contract
+
+- Record evidence-backed unusual or high-impact application capabilities in `findings/attack-surface.md`, even when they are not vulnerabilities by themselves.
+- Record any concrete concealment or analysis-resistance indicators separately from ordinary build obfuscation/minification.
+- Ordinary R8/ProGuard/minification, generated identifiers, compressed assets, stripped vendor libraries and normal framework reflection do not establish malicious intent.
+- Use the attack-surface state `NONE_ESTABLISHED`, `ORDINARY_BUILD_OBFUSCATION_ONLY`, `SUSPICIOUS_CONCEALMENT_INDICATORS`, or `CONFIRMED_ANTI_ANALYSIS_BEHAVIOR` and support the latter two with concrete app-specific evidence.
+- The final analyst summary must say whether unusual behavior or meaningful concealment/analysis-resistance was established.
 
 ## Secret/material contract
 
@@ -57,14 +65,16 @@ If JADX output is incomplete or suspicious, verify the relevant path against Apk
 ## Durable reporting contract
 
 The primary agent MUST maintain:
-- `findings/inventory.md` — package/version/signing/SDK/component/library/native and split/OBB inventory where applicable.
-- `findings/attack-surface.md` — exported components, deep links, providers, WebViews, IPC and prioritized entry points.
-- `findings/secrets.md` — grouped credential/material classification without raw sensitive values.
-- `findings/findings.md` — concise evidence-backed security findings/candidates.
-- `findings/coverage.md` — actual/skipped tooling, grouped secret coverage, native baseline vs deep review, split/container coverage and degraded coverage.
-- `findings/research.md` — compact index of research questions/status/effect/canonical report path.
-- `findings/analysis-log.md` — major decisions and concise delegation provenance including result path and observed peak concurrency.
+- `findings/inventory.md` - package/version/signing/SDK/component/library/native and split/OBB inventory where applicable.
+- `findings/attack-surface.md` - exported components, deep links, providers, WebViews, IPC, prioritized entry points, unusual behavior and concealment/analysis-resistance state.
+- `findings/secrets.md` - grouped credential/material classification without raw sensitive values.
+- `findings/findings.md` - concise evidence-backed security findings/candidates.
+- `findings/coverage.md` - actual/skipped tooling, grouped secret coverage, native baseline vs deep review, split/container coverage and degraded coverage.
+- `findings/research.md` - compact index of research questions/status/effect/canonical report path.
+- `findings/analysis-log.md` - major decisions and concise delegation provenance including result path and observed peak concurrency.
 
 Detailed non-research work belongs under `reports/subagents/`. Each RQ gets one detail file under `reports/research/`. Raw logs/redacted deterministic outputs belong under `reports/tool-output/`. Raw retained credentials/decoded/hash operator material belongs only under `reports/sensitive/` when explicitly enabled.
 
-At the end produce `reports/STATIC_SECURITY_REPORT.md`, derived from the structured findings. It must include limitations, validation status, material research-backed changes, grouped secret/material coverage, native baseline/deeper-review coverage, package/split limitations when applicable, and a short Tools/Coverage summary.
+At the end produce `reports/STATIC_SECURITY_REPORT.md`, derived from the structured findings. Near the top it must contain a compact `## Analyst summary` that states: whether any Critical/High finding was independently confirmed, the highest supported severity, up to three most important risks, unusual behavior found or none, concealment/analysis-resistance state with evidence, and the single most important remaining limitation. Keep it short and do not duplicate the full findings section.
+
+The final OpenCode response to the operator must repeat the same compact analyst summary.
