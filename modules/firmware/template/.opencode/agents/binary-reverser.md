@@ -32,9 +32,11 @@ python3 tools/firmware_ghidra_slice.py \
   [--needle <another-needle> ...]
 ```
 
-Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, records instruction context around direct xrefs, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Each distinct query produces a separate query-id artifact, so preserve earlier slices rather than overwriting them.
+Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. When correlating a secret/key/material lead identified by a concrete path, prefer the full path or a distinctive directory token such as `foxconn_ca` over generic filenames like `server.key` or `client.key`; generic key names commonly collide with unrelated OpenVPN/TLS provisioning logic and must not be treated as evidence for the original material lead without path correlation.
 
-Use Ghidra iteratively. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name such as `FUN_0001c108`, use that function symbol as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer two or three narrow slices over one large decompilation dump.
+The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, records instruction context around direct xrefs, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Each distinct query produces a separate query-id artifact, so preserve earlier slices rather than overwriting them.
+
+Use Ghidra iteratively. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name such as `FUN_0001c108`, use that function name as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer two or three narrow slices over one large decompilation dump.
 
 Read only the slice needed for the delegated hypothesis and summarize it rather than copying large decompiler output into reports.
 
