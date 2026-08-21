@@ -8,6 +8,7 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
@@ -72,6 +73,16 @@ public class SatDecompileRefs extends GhidraScript {
         int lengthBonus = Math.min(40, needle.length() * 2);
         int syntaxBonus = (needle.contains(".") || needle.contains("_") || needle.contains("/")) ? 30 : 0;
         return 100 + lengthBonus + syntaxBonus;
+    }
+
+    private static int functionQuality(Function function) {
+        if (function == null || function.isExternal()) {
+            return 0;
+        }
+        if (function.isThunk()) {
+            return 1;
+        }
+        return 2;
     }
 
     private static void addReason(
@@ -219,12 +230,8 @@ public class SatDecompileRefs extends GhidraScript {
                     continue;
                 }
 
-                // When a needle directly names a recovered/generated function
-                // symbol (for example FUN_0001c108), include the function itself.
-                // This makes a first-pass caller visible as a precise second-pass
-                // target without needing a separate Ghidra project or script.
                 Function namedFunction = functions.getFunctionAt(symbol.getAddress());
-                if (namedFunction != null) {
+                if (namedFunction != null && !namedFunction.isExternal() && !namedFunction.isThunk()) {
                     addReason(
                         selected, namedFunction,
                         "direct function-symbol match '" + needle + "' -> " + name,
@@ -245,9 +252,33 @@ public class SatDecompileRefs extends GhidraScript {
             }
         }
 
+        // Ghidra-generated names such as FUN_0001c108 are not guaranteed to
+        // appear in SymbolTable iteration. Match function names directly so a
+        // first-pass address can be used as an exact second-pass target.
+        FunctionIterator functionIterator = functions.getFunctions(true);
+        while (functionIterator.hasNext() && !monitor.isCancelled()) {
+            Function function = functionIterator.next();
+            if (function.isExternal() || function.isThunk()) {
+                continue;
+            }
+            String name = function.getName();
+            for (String needle : needles) {
+                if (containsIgnoreCase(name, needle)) {
+                    addReason(
+                        selected, function,
+                        "direct function-name match '" + needle + "' -> " + name,
+                        directScore(needle) + 120, needle, true, null, function.getEntryPoint().toString()
+                    );
+                }
+            }
+        }
+
         // One caller layer gives useful control-flow context without exploding scope.
         List<Function> seedFunctions = new ArrayList<>(selected.keySet());
         for (Function callee : seedFunctions) {
+            if (callee.isExternal()) {
+                continue;
+            }
             ReferenceIterator callerRefs = references.getReferencesTo(callee.getEntryPoint());
             while (callerRefs.hasNext() && !monitor.isCancelled()) {
                 Reference reference = callerRefs.next();
@@ -263,7 +294,8 @@ public class SatDecompileRefs extends GhidraScript {
         List<Map.Entry<Function, Candidate>> ordered = new ArrayList<>(selected.entrySet());
         ordered.sort(
             Comparator
-                .<Map.Entry<Function, Candidate>>comparingInt(entry -> entry.getValue().directNeedles.size()).reversed()
+                .<Map.Entry<Function, Candidate>>comparingInt(entry -> functionQuality(entry.getKey())).reversed()
+                .thenComparing(Comparator.comparingInt((Map.Entry<Function, Candidate> entry) -> entry.getValue().directNeedles.size()).reversed())
                 .thenComparing(Comparator.comparingInt((Map.Entry<Function, Candidate> entry) -> entry.getValue().score).reversed())
                 .thenComparing(entry -> entry.getKey().getEntryPoint())
         );
@@ -299,6 +331,9 @@ public class SatDecompileRefs extends GhidraScript {
                     break;
                 }
                 Function function = entry.getKey();
+                if (function.isExternal() || function.isThunk()) {
+                    continue;
+                }
                 Candidate candidate = entry.getValue();
                 writer.println("## " + function.getName() + " @ " + function.getEntryPoint());
                 writer.println("priority score: " + candidate.score);
