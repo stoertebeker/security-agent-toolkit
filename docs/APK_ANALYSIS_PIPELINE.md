@@ -4,91 +4,131 @@ The APK module supports normal APK inputs and supported package containers prepa
 
 ## Secret/material pipeline
 
-The deterministic scanner may produce many raw hits. Raw candidates are not LLM input.
+Raw scanner candidates are not LLM input:
 
 ```text
 secret-candidates.json
-        |
-        v
-apk_secret_group.py
-  - strict format filtering
-  - value deduplication
-  - Android resource-key grouping
-  - dependency/localization hints
-        |
-        v
-secret-groups.json
-        |
-        v
-apk-secret-hunter
-        |
-        +--> bounded apk-secret-review-worker batches
+        -> apk_secret_group.py
+        -> secret-groups.json
+        -> apk-secret-hunter
+        -> bounded apk-secret-review-worker batches
 ```
 
-Every semantic group receives plausibility, classification and confidence. Client-shipped values are not automatically confidential credentials just because a field is named `secret`, `APPSECRET` or `clientSecret`.
-
-Use these distinctions where applicable:
-- `CONFIRMED_SECRET_OR_CREDENTIAL` for actually confidential/privileged reusable material;
-- `EXPOSED_CLIENT_SIGNING_MATERIAL` for client-side signing material whose server trust/confidentiality semantics remain conditional;
-- `CLIENT_SDK_AUTH_MATERIAL` for mobile-SDK integration authentication material whose provider-side privilege/reusability is unresolved or client-scoped;
-- `PUBLIC_CLIENT_CONFIGURATION` for expected public client identifiers/configuration.
-
-Opted-in raw values remain under `reports/sensitive/` only.
+Every semantic group receives plausibility, classification and confidence. Client-shipped values are not automatically confidential credentials because a field is named `secret`, `APPSECRET` or `clientSecret`.
 
 ## Native pipeline
 
-Run:
+`python3 tools/apk_native_baseline.py` recursively covers `.so` files under `extracted/apktool/`, including decoded split/ABI trees. Deeper `apk-native-reverser`/Ghidra work is reserved for app-relevant, reachable or otherwise security-interesting libraries. `/native` refreshes this path without repeating the whole assessment.
 
-```text
-python3 tools/apk_native_baseline.py
+## Dynamic pipeline
+
+Dynamic analysis uses only the toolkit-managed Android Emulator. There is no external-device path in the v1 workflow.
+
+Install the optional runtime once:
+
+```bash
+./toolkit install apk --with-optional
 ```
 
-The baseline recursively covers `.so` files under `extracted/apktool/`, including decoded split/ABI trees. It records architecture, selected hardening properties, JNI exports, dangerous-import leads and redacted native secret-string leads.
+The managed Android SDK/emulator lives under `$SAT_HOME/android-sdk`. Android system images are downloaded on demand. Project AVD state remains under `work/android/`.
 
-Baseline indicators are not vulnerabilities. Deeper `apk-native-reverser`/Ghidra work is reserved for app-relevant, reachable or otherwise security-interesting libraries. Durable coverage must distinguish baseline-only libraries from deeply reviewed libraries.
+### Capability gate
 
-Inside OpenCode, `/native` refreshes the baseline and performs focused follow-up without repeating the whole assessment.
+Every dynamic run starts with:
+
+```text
+python3 tools/apk_dynamic.py probe
+```
+
+The probe records:
+- Linux host architecture;
+- bare-metal, VM, LXC/container virtualization type;
+- CPU `vmx`/`svm` flags;
+- `/dev/kvm` presence and read/write access;
+- `emulator -accel-check` result;
+- prepared APK/XAPK native ABIs;
+- selected emulator image ABI;
+- selected `kvm`, `software`, or unavailable mode.
+
+CPU virtualization flags alone are not enough. KVM mode is selected only when the Android Emulator itself reports acceleration usable.
+
+For an LXC/container without `/dev/kvm`, the toolkit reports that the host must pass the KVM device through. It does not modify the host. For a VM without `/dev/kvm`, it reports likely missing nested virtualization. If `allow_software_emulation=true`, software CPU emulation remains a fallback, including cross-architecture ARM64 app images on an x86_64 host, but can be dramatically slower.
+
+### Emulator setup and collection
+
+`/dynamic-setup` performs the probe and creates a compatible AVD. Rootable AOSP/default images are preferred; root is verified after boot rather than assumed.
+
+`/dynamic` runs:
+
+```text
+probe -> setup -> boot -> install APK/splits -> launch/observe
+      -> optional Frida -> collect PCAP/logcat/UI/state
+      -> deterministic evidence summary -> dynamic analyst -> validator if needed
+```
+
+Key artifacts:
+
+```text
+reports/tool-output/dynamic-capabilities.{json,txt}
+reports/dynamic/setup.json
+reports/dynamic/device-info.json
+reports/dynamic/root-status.json
+reports/dynamic/network.pcap
+reports/dynamic/*logcat*.txt
+reports/dynamic/ui.xml
+reports/dynamic/states/
+reports/dynamic/frida-events.txt          # only when enabled/available
+reports/dynamic/evidence-summary.{json,txt}
+reports/subagents/dynamic-review.md
+findings/dynamic.md
+reports/DYNAMIC_SECURITY_REPORT.md
+```
+
+The emulator's `-tcpdump` capture records runtime Ethernet traffic. `apk_dynamic_evidence.py` parses the capture locally with `tcpdump`, summarizes Frida event types, process mappings, app-data file deltas and selected logcat indicators before agent interpretation.
+
+### Frida
+
+When `dynamic.allow_frida=true`, the workflow requires a root-capable managed emulator. It downloads a `frida-server` version matching the installed Frida client and emulator ABI, deploys it to `/data/local/tmp`, and runs redacted observation hooks.
+
+The default hooks record only metadata such as:
+- WebView URL with query/fragment redacted;
+- JavaScript-interface name;
+- native library name;
+- DexClassLoader path;
+- SharedPreferences key plus value length;
+- SQLite table/key names;
+- intent action/component/redacted URI;
+- debugger-check execution.
+
+They intentionally do not record passwords, tokens, request bodies or raw stored values.
+
+### Active validation boundary
+
+`dynamic.allow_active_validation=true` allows bounded emulator-local validation of existing static hypotheses, such as invoking an exported component/deep link or navigating to an app feature. It does not authorize broad fuzzing or crafted/replayed/mutated backend/provider API requests. Those belong to a separately scoped API assessment.
+
+Runtime absence is not proof of absence unless the relevant feature was actually exercised. Missing Google services, incompatible images, software-emulation slowness, lack of root/Frida and unexercised credential-gated features are recorded as coverage limitations.
 
 ## Behavior and concealment review
 
-Recon and focused code review also record unusual/high-impact application behavior and concrete concealment or analysis-resistance indicators in `findings/attack-surface.md`.
-
-The analysis must distinguish ordinary build obfuscation/minification from meaningful behavior. Generated names, compressed resources, stripped vendor libraries, or normal framework reflection are not evidence of malicious intent by themselves. Suspicious or deliberate analysis-resistance claims require app-specific evidence.
+Recon, code review and dynamic evidence record unusual/high-impact behavior and concrete concealment or analysis-resistance indicators in durable state. Generated names, compressed resources, stripped vendor libraries, or ordinary framework reflection are not evidence of malicious intent by themselves.
 
 ## Public research pipeline
 
-Research is local-first. Every externally delegated research question must carry:
-- RQ ID and narrow question;
-- why it matters;
-- 2-5 concrete non-sensitive local facts, including useful negative evidence;
-- the exact external fact still needed;
-- source/report budgets.
-
-The web worker performs one focused discovery search, then fetches/reads the strongest primary source before broadening search. If the primary fetch fails, it tries at most one alternate primary page before another search. Search snippets remain `SOURCE_LEAD_ONLY` and cannot change findings.
-
-Each RQ has exactly one canonical report under `reports/research/RQ-XX-....md`. The primary correlates verified external facts back to local evidence and uses validation only for material finding changes.
+Research remains local-first. Every externally delegated RQ must include why it matters, 2-5 concrete non-sensitive local facts and the exact external fact still needed. Workers fetch/read a primary source before broadening search. Search snippets remain `SOURCE_LEAD_ONLY`.
 
 ## Analyst summary
 
-Every completed assessment includes a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md` and repeats it in the final OpenCode response.
+Every completed assessment includes a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md` and repeats it in the final OpenCode response. When dynamic analysis ran, validated runtime changes are incorporated and a separate `reports/DYNAMIC_SECURITY_REPORT.md` is produced.
 
-It answers, without duplicating the full findings report:
-- whether any Critical or High finding was independently confirmed and the highest supported severity;
-- the three most important risks at most;
-- unusual or surprising application behavior, or that none was established;
-- whether concealment/analysis-resistance evidence was absent, ordinary build obfuscation only, suspicious, or confirmed deliberate behavior;
-- the single most important remaining analysis limitation.
-
-This section is an analyst-facing outcome summary, not a replacement for `findings/findings.md`, `findings/attack-surface.md`, or the validation evidence.
-
-## Targeted regression commands
-
-After changing the module, an existing prepared workspace can exercise the changed paths without repeating decompilation:
+## Targeted commands
 
 ```text
 /secrets
 /native
 /research
+/dynamic-setup
+/dynamic
+/summary
 ```
 
-A full new assessment should still start from `START_PROMPT.txt`.
+A full new assessment starts from `START_PROMPT.txt`; when `[dynamic].enabled=true`, its validated static phase is followed by the managed dynamic phase.
