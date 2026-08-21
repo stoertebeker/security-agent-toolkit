@@ -20,7 +20,9 @@ Establish separately:
 - process user/privilege clues;
 - whether exposure is LAN-only/WAN-capable/unknown from static artifacts.
 
-For web interfaces trace concrete endpoint/CGI/Lua/PHP/handler routing rather than treating the presence of a webroot as reachable. Pay particular attention to command construction, file upload/import, configuration setters, diagnostic endpoints, hidden/debug/admin routes, CSRF/session handling, and unauthenticated state-changing actions.
+For web interfaces trace concrete endpoint/CGI/Lua/PHP/shell/native handler routing rather than treating the presence of a webroot as reachable. Pay particular attention to command construction, file upload/import, configuration setters, diagnostic endpoints, hidden/debug/admin routes, CSRF/session handling, and unauthenticated state-changing actions.
+
+When a selected script/web-handler subtree is small enough to be useful, Semgrep may be run **only on that delegated path** as an additional lead generator. Do not run broad Semgrep scans across the whole extracted rootfs merely for coverage, and do not promote a Semgrep rule match without tracing the local input/sink/reachability chain.
 
 For IPC/RPC mechanisms distinguish a registered method from an externally reachable method and establish the caller trust boundary when possible.
 
