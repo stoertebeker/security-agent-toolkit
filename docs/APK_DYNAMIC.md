@@ -21,6 +21,45 @@ This installs the managed Android command-line tools/emulator/platform-tools und
 
 The toolkit does not install libvirt, modify KVM permissions, enable nested virtualization, change LXC configuration, or pass `/dev/kvm` into a container.
 
+### Managed tools and the interactive shell PATH
+
+The Android runtime belongs to the toolkit, not to the distribution. The installer creates managed entry points under:
+
+```text
+$SAT_HOME/bin
+```
+
+with the default:
+
+```text
+~/.local/share/security-agent-toolkit/bin
+```
+
+`apk_dynamic.py`, `./toolkit doctor`, and the OpenCode workflow prepend this directory internally. The operator's normal interactive shell does not have to contain it. Therefore this can be normal:
+
+```text
+$ emulator
+Command 'emulator' not found
+```
+
+while the capability probe simultaneously reports:
+
+```text
+tooling ready: yes
+emulator_installed: true
+```
+
+To call the managed emulator manually, use:
+
+```bash
+SAT_HOME=${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}
+"$SAT_HOME/bin/emulator" -accel-check
+```
+
+Do **not** install a second distro-provided emulator merely because the shell suggests a package such as `google-android-emulator-installer`. That would create a second unmanaged Android runtime beside the toolkit copy and make diagnostics/version selection ambiguous.
+
+Some Android command-line-tools releases may also print a migration/deprecation warning for `sdkmanager`. Treat the warning itself as non-fatal when the toolkit install check completes successfully; the managed runtime remains the source of truth for the workflow rather than a second system installation.
+
 ## Configure
 
 Enable dynamic analysis in the project `target/TARGET.toml`:
@@ -74,7 +113,7 @@ The probe distinguishes:
 | LXC/container without `/dev/kvm` | not accelerated | software x86_64 if allowed; otherwise unavailable |
 | non-x86_64 host | dynamic v1 unsupported | unavailable; static analysis remains supported |
 
-`vmx`/`svm` CPU flags are diagnostic only. KVM mode is selected only when `emulator -accel-check` succeeds.
+`vmx`/`svm` CPU flags are diagnostic only. KVM mode is selected only when the Android Emulator itself reports acceleration usable.
 
 ## Proxmox VE LXC: pass `/dev/kvm` through when possible
 
@@ -101,14 +140,15 @@ pct set <CTID> --dev0 path=/dev/kvm,mode=0660,gid=<CONTAINER_KVM_GID>
 pct reboot <CTID>
 ```
 
-If `dev0` is already present, use the next free `devN`. The `gid` is the `kvm` group ID as seen inside the container. Start a new login/session after changing group membership.
+If `dev0` is already present, use the next free `devN`. The `gid` is the `kvm` group ID as seen inside the container. Start a new login/session after changing group membership. Current Proxmox `pct` documents `dev[n]` as a device passed through to the container, with configurable path, GID and mode.
 
-Verify inside the container:
+Verify inside the container using the managed emulator path:
 
 ```bash
 ls -l /dev/kvm
 test -r /dev/kvm && test -w /dev/kvm && echo kvm-device-rw
-emulator -accel-check
+SAT_HOME=${SAT_HOME:-$HOME/.local/share/security-agent-toolkit}
+"$SAT_HOME/bin/emulator" -accel-check
 python3 tools/apk_dynamic.py probe
 ```
 
@@ -118,6 +158,22 @@ The desired result is:
 /dev/kvm: rw
 KVM usable by emulator: yes
 selected acceleration: kvm
+```
+
+A successfully verified Proxmox/LXC setup may look like:
+
+```text
+host architecture: x86_64
+virtualization: container/lxc
+/dev/kvm: rw
+tooling ready: yes
+KVM usable by emulator: yes
+target ABIs: arm64-v8a
+runtime ABI mode: android11-x86_64-multiabi-translation
+selected image ABI: x86_64
+selected API override: 30
+selected acceleration: kvm
+dynamic available: yes
 ```
 
 Older Proxmox VE releases that do not support `pct ... --devN` use the cgroup-v2 device-passthrough mechanism instead. Proxmox documents `lxc.cgroup2.devices.allow` for cgroup-v2 hardware passthrough; `/dev/kvm` is normally character device major/minor `10:232`, but verify the actual host device before using legacy configuration. A typical legacy configuration is conceptually:
