@@ -17,7 +17,9 @@ required=[
   "frida-tools",
   "ghidra"
 ]
-optional=[]
+optional=[
+  "android-emulator"
+]
 
 [platforms]
 supported=["ubuntu-24.04","ubuntu-26.04","debian-12","debian-13","kali-rolling","parrot-7"]
