@@ -28,11 +28,12 @@ Before broad analysis, ensure these artifacts are fresh for the configured firmw
 ```text
 python3 tools/firmware_prepare.py
 python3 tools/firmware_baseline.py
+python3 tools/firmware_component_fingerprint.py
 python3 tools/firmware_secret_scan.py
 python3 tools/firmware_secret_group.py
 ```
 
-`firmware_prepare.py` owns recursive extraction/rootfs discovery and extraction safety/provenance. `firmware_baseline.py` owns filesystem/account/service/update/component/ELF baseline inventory. These deterministic outputs are leads and coverage evidence, not findings.
+`firmware_prepare.py` owns recursive extraction/rootfs discovery and extraction safety/provenance. `firmware_baseline.py` owns filesystem/account/service/update/package-DB/ELF baseline inventory. `firmware_component_fingerprint.py` adds conservative static version anchors for named embedded components. These deterministic outputs are leads and coverage evidence, not findings.
 
 Never ask an LLM agent to recursively browse the whole extracted firmware merely to build inventory. Start from:
 - `reports/tool-output/firmware-preparation.*`
@@ -40,6 +41,7 @@ Never ask an LLM agent to recursively browse the whole extracted firmware merely
 - `reports/tool-output/firmware-services.*`
 - `reports/tool-output/firmware-update-leads.*`
 - `reports/tool-output/firmware-components.*`
+- `reports/tool-output/firmware-component-fingerprints.*`
 - `reports/tool-output/firmware-binaries.json`
 - `reports/tool-output/firmware-secret-groups.json`
 
@@ -71,7 +73,7 @@ Prioritize evidence-backed paths in this order when applicable:
 7. startup persistence, hidden/debug services, unusual external destinations, telemetry/control channels;
 8. third-party components only where local version/reachability makes research useful.
 
-Work evidence-first. A string, package version, SUID bit, dangerous import, listening-daemon name, update keyword, public CVE, or decompiler output alone is only a lead. Where applicable establish:
+Work evidence-first. A string, package/version fingerprint, SUID bit, dangerous import, listening-daemon name, update keyword, public CVE, or decompiler output alone is only a lead. Where applicable establish:
 
 ```text
 attacker-controlled/relevant source -> processing/validation -> sensitive sink -> startup/reachability/privilege -> realistic impact
@@ -105,7 +107,7 @@ The latter two require concrete target-specific evidence.
 
 ## Targeted public research
 
-Public research is last-mile. First exhaust cheap local evidence: package DBs, version strings, service configs, init scripts, binary imports/strings, update keys/logic, vendor identifiers, and supplied firmware metadata.
+Public research is last-mile. First exhaust cheap local evidence: package DBs, conservative version fingerprints, service configs, init scripts, binary imports/strings, update keys/logic, vendor identifiers, and supplied firmware metadata.
 
 Every RQ sent to `firmware-researcher` MUST include:
 - RQ-ID and narrow question;
