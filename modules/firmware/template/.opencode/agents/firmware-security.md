@@ -40,12 +40,19 @@ Never ask an LLM agent to recursively browse the whole extracted firmware merely
 - `reports/tool-output/firmware-baseline.*`
 - `reports/tool-output/firmware-services.*`
 - `reports/tool-output/firmware-update-leads.*`
+- `reports/tool-output/firmware-update-ui-paths.*`
 - `reports/tool-output/firmware-components.*`
 - `reports/tool-output/firmware-component-fingerprints.*`
 - `reports/tool-output/firmware-binaries.json`
 - `reports/tool-output/firmware-secret-groups.json`
 
 If preparation is degraded or no conventional rootfs was established, preserve that limitation. Do not silently claim complete filesystem coverage.
+
+Lifecycle/update semantics are part of the evidence contract:
+- `firmware-services.*` may contain `kind=start`, `kind=start-candidate`, `kind=network-config`, and `kind=stop`. A `stop` record is lifecycle evidence only and MUST NOT establish that a daemon is startup-enabled, listening, or reachable.
+- zero deterministic startup/config leads is not proof that no services start. Native embedded init/rc dispatchers may own startup; ask the explorer to reconstruct the focused init chain and preserve `STARTUP_NOT_ESTABLISHED` where static evidence cannot resolve it.
+- `firmware-update-leads.*` contains update mechanism/security evidence.
+- `firmware-update-ui-paths.*` contains UI/navigation/entry-point anchors only. UI filenames, DOM ids, CSS classes and version-check pages do not establish verification, authenticity enforcement, privileged flashing or remotely reachable update behavior.
 
 ## Secret/material boundary
 
