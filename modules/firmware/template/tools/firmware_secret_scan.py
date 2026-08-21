@@ -36,7 +36,8 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
 SENSITIVE_FILENAMES = {
     "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "ssh_host_rsa_key",
     "ssh_host_dsa_key", "ssh_host_ecdsa_key", "ssh_host_ed25519_key",
-    "dropbear_rsa_host_key", "dropbear_ecdsa_host_key", "dropbear_ed25519_key",
+    "dropbear_rsa_host_key", "dropbear_ecdsa_host_key",
+    "dropbear_ed25519_key", "dropbear_ed25519_host_key",
 }
 
 
@@ -167,7 +168,6 @@ def scan_shadow_text(path: Path, text: str, candidates: list[dict], sensitive: l
         username, credential = parts[0], parts[1]
         if credential in {"", "!", "!!", "*", "!*"}:
             if credential == "":
-                # Stable redacted account marker, not a real secret value.
                 add_candidate(
                     candidates, sensitive, rule="empty_shadow_password", priority="HIGH",
                     path=path, line=number, value=f"account:{username}:empty",
@@ -206,8 +206,6 @@ def main() -> int:
 
     for current, dirnames, filenames in os.walk(rootfs, followlinks=False):
         current_path = Path(current)
-        # Never descend through extracted firmware symlinks, including absolute
-        # target-root links such as /lib or /var.
         dirnames[:] = [name for name in dirnames if real_dir(current_path / name)]
 
         for filename in filenames:
