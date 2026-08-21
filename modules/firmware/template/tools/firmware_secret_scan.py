@@ -36,7 +36,7 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
 SENSITIVE_FILENAMES = {
     "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "ssh_host_rsa_key",
     "ssh_host_dsa_key", "ssh_host_ecdsa_key", "ssh_host_ed25519_key",
-    "dropbear_rsa_host_key", "dropbear_ecdsa_host_key", "dropbear_ed25519_host_key",
+    "dropbear_rsa_host_key", "dropbear_ecdsa_host_key", "dropbear_ed25519_key",
 }
 
 
@@ -54,6 +54,18 @@ def load_config() -> tuple[dict, dict]:
     return cfg, cfg.get("secrets", {})
 
 
+def lstat_mode(path: Path) -> int | None:
+    try:
+        return path.lstat().st_mode
+    except OSError:
+        return None
+
+
+def real_dir(path: Path) -> bool:
+    mode = lstat_mode(path)
+    return bool(mode is not None and stat.S_ISDIR(mode))
+
+
 def load_rootfs() -> Path:
     if not PREP.is_file():
         fail("firmware preparation missing")
@@ -61,9 +73,12 @@ def load_rootfs() -> Path:
     raw = prep.get("primary_rootfs") or prep.get("extraction_root")
     if not raw:
         fail("no prepared rootfs/extraction root")
-    path = ROOT / raw
-    if not path.is_dir():
-        fail(f"prepared path missing: {raw}")
+    raw_path = Path(str(raw))
+    if raw_path.is_absolute() or ".." in raw_path.parts or raw_path.parts[:2] != ("work", "extracted"):
+        fail(f"unsafe prepared rootfs path: {raw}")
+    path = ROOT / raw_path
+    if not real_dir(path):
+        fail(f"prepared rootfs is not a real directory: {raw}")
     return path
 
 
@@ -93,20 +108,21 @@ def redact_context(line: str, value: str | None = None) -> str:
     return text[:MAX_CONTEXT]
 
 
-def text_file(path: Path) -> bool:
+def regular_text(path: Path, st: os.stat_result) -> str:
+    if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_FILE_SIZE:
+        return ""
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_FILE_SIZE:
-            return False
         with path.open("rb") as handle:
             sample = handle.read(4096)
-        if not sample:
-            return True
-        if b"\x00" in sample:
-            return False
-        printable = sum(byte in b"\t\n\r" or 32 <= byte < 127 for byte in sample)
-        return printable / len(sample) >= 0.70
+        if sample and b"\x00" in sample:
+            return ""
+        if sample:
+            printable = sum(byte in b"\t\n\r" or 32 <= byte < 127 for byte in sample)
+            if printable / len(sample) < 0.70:
+                return ""
+        return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return False
+        return ""
 
 
 def value_from_match(match: re.Match[str]) -> str:
@@ -118,7 +134,11 @@ def value_from_match(match: re.Match[str]) -> str:
     return match.group(0)
 
 
-def add_candidate(candidates: list[dict], sensitive: list[dict], *, rule: str, priority: str, path: Path, line: int | None, value: str, context: str, kind: str = "text", sensitive_value: str | None = None) -> None:
+def add_candidate(
+    candidates: list[dict], sensitive: list[dict], *, rule: str, priority: str,
+    path: Path, line: int | None, value: str, context: str,
+    kind: str = "text", sensitive_value: str | None = None,
+) -> None:
     if not value:
         return
     candidates.append({
@@ -133,16 +153,12 @@ def add_candidate(candidates: list[dict], sensitive: list[dict], *, rule: str, p
     })
     if sensitive_value is not None:
         sensitive.append({"rule": rule, "path": rel(path), "line": line, "value": sensitive_value})
-    else:
+    elif kind != "file-digest":
         sensitive.append({"rule": rule, "path": rel(path), "line": line, "value": value})
 
 
-def scan_shadow(path: Path, candidates: list[dict], sensitive: list[dict]) -> None:
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return
-    for number, line in enumerate(lines, 1):
+def scan_shadow_text(path: Path, text: str, candidates: list[dict], sensitive: list[dict]) -> None:
+    for number, line in enumerate(text.splitlines(), 1):
         if not line or line.startswith("#"):
             continue
         parts = line.split(":")
@@ -151,17 +167,21 @@ def scan_shadow(path: Path, candidates: list[dict], sensitive: list[dict]) -> No
         username, credential = parts[0], parts[1]
         if credential in {"", "!", "!!", "*", "!*"}:
             if credential == "":
-                add_candidate(candidates, sensitive, rule="empty_shadow_password", priority="HIGH", path=path, line=number, value=f"{username}:<empty>", context=f"{username}:<empty-password>", kind="account")
+                # Stable redacted account marker, not a real secret value.
+                add_candidate(
+                    candidates, sensitive, rule="empty_shadow_password", priority="HIGH",
+                    path=path, line=number, value=f"account:{username}:empty",
+                    context=f"{username}:<empty-password>", kind="account",
+                )
             continue
-        add_candidate(candidates, sensitive, rule="shadow_credential", priority="MEDIUM", path=path, line=number, value=credential, context=f"{username}:<shadow-credential>", kind="account")
+        add_candidate(
+            candidates, sensitive, rule="shadow_credential", priority="MEDIUM",
+            path=path, line=number, value=credential, context=f"{username}:<shadow-credential>", kind="account",
+        )
 
 
-def scan_passwd(path: Path, candidates: list[dict], sensitive: list[dict]) -> None:
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return
-    for number, line in enumerate(lines, 1):
+def scan_passwd_text(path: Path, text: str, candidates: list[dict], sensitive: list[dict]) -> None:
+    for number, line in enumerate(text.splitlines(), 1):
         if not line or line.startswith("#"):
             continue
         parts = line.split(":")
@@ -170,7 +190,10 @@ def scan_passwd(path: Path, candidates: list[dict], sensitive: list[dict]) -> No
         username, credential = parts[0], parts[1]
         if credential in {"", "x", "*", "!", "!!"}:
             continue
-        add_candidate(candidates, sensitive, rule="passwd_credential", priority="HIGH", path=path, line=number, value=credential, context=f"{username}:<passwd-credential>", kind="account")
+        add_candidate(
+            candidates, sensitive, rule="passwd_credential", priority="HIGH",
+            path=path, line=number, value=credential, context=f"{username}:<passwd-credential>", kind="account",
+        )
 
 
 def main() -> int:
@@ -181,19 +204,14 @@ def main() -> int:
     sensitive_values: list[dict] = []
     scanned = skipped_large_binary = 0
 
-    shadow = rootfs / "etc/shadow"
-    passwd = rootfs / "etc/passwd"
-    if shadow.is_file():
-        scan_shadow(shadow, candidates, sensitive_values)
-    if passwd.is_file():
-        scan_passwd(passwd, candidates, sensitive_values)
-
-    for current, _, filenames in os.walk(rootfs, followlinks=False):
+    for current, dirnames, filenames in os.walk(rootfs, followlinks=False):
         current_path = Path(current)
+        # Never descend through extracted firmware symlinks, including absolute
+        # target-root links such as /lib or /var.
+        dirnames[:] = [name for name in dirnames if real_dir(current_path / name)]
+
         for filename in filenames:
             path = current_path / filename
-            if path in {shadow, passwd} or path.is_symlink():
-                continue
             try:
                 st = path.lstat()
             except OSError:
@@ -201,27 +219,34 @@ def main() -> int:
             if not stat.S_ISREG(st.st_mode):
                 continue
 
+            try:
+                relative = path.relative_to(rootfs).as_posix()
+            except ValueError:
+                continue
+
             if filename in SENSITIVE_FILENAMES:
                 try:
                     data = path.read_bytes()
                 except OSError:
                     data = b""
-                content_digest = hashlib.sha256(data).hexdigest() if data else rel(path)
+                digest = hashlib.sha256(data).hexdigest() if data else fingerprint(rel(path))
                 add_candidate(
                     candidates, sensitive_values, rule="private_key_file", priority="HIGH",
-                    path=path, line=None, value=content_digest, context=f"private-key-like file {filename}", kind="file",
-                    sensitive_value=None,
+                    path=path, line=None, value=digest, context=f"private-key-like file {filename}",
+                    kind="file-digest",
                 )
                 continue
 
-            if not text_file(path):
+            text = regular_text(path, st)
+            if not text:
                 skipped_large_binary += 1
                 continue
             scanned += 1
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
+
+            if relative == "etc/shadow":
+                scan_shadow_text(path, text, candidates, sensitive_values)
+            elif relative == "etc/passwd":
+                scan_passwd_text(path, text, candidates, sensitive_values)
 
             private_key_file_fingerprint = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
             for number, line in enumerate(text.splitlines(), 1):
@@ -234,7 +259,7 @@ def main() -> int:
                             add_candidate(
                                 candidates, sensitive_values, rule=rule, priority=priority,
                                 path=path, line=number, value=private_key_file_fingerprint,
-                                context=line, kind="file", sensitive_value=None,
+                                context=line, kind="file-digest",
                             )
                         else:
                             add_candidate(
@@ -250,7 +275,7 @@ def main() -> int:
         "# Firmware secret candidate scan",
         f"rootfs: {rel(rootfs)}",
         f"text files scanned: {scanned}",
-        f"large/binary files skipped: {skipped_large_binary}",
+        f"large/binary/non-text files skipped: {skipped_large_binary}",
         f"raw candidates: {len(candidates)}",
         "",
         "## Rules",
