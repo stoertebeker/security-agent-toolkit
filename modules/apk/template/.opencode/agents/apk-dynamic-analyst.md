@@ -37,7 +37,11 @@ Active validation:
 - Do not craft, replay, mutate, or automate backend/API requests under this gate. Backend/API security testing remains a separate authorization/scope concern.
 - Record exact emulator-local action and outcome in `findings/dynamic.md`.
 
-Concealment/anti-analysis:
+Unusual behavior and concealment:
+- Separate ordinary platform/application behavior from genuinely surprising or security-relevant behavior.
+- A declared deep link dispatching to the app, a declared exported component receiving its intended benign invocation, ordinary SDK/service initialization, library loading, or normal framework callbacks are runtime capabilities, not `unusual behavior` by themselves.
+- Report unusual behavior only when the observed runtime behavior is unexpected for the declared app role, unusually privileged/high-impact, hidden from ordinary UI/manifest expectations, or materially changes the attack surface.
+- If only expected dispatch/component behavior was confirmed, write `Unusual behavior: None established` and record the confirmed reachability under the relevant hypothesis/runtime-capability section instead.
 - Record debugger/emulator/Frida/root checks only when they actually execute or materially alter behavior.
 - Normal R8/ProGuard/minification, stripped libraries, or framework packing are not evidence of malicious concealment.
 
