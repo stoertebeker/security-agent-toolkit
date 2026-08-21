@@ -32,7 +32,7 @@ python3 tools/apk_dynamic.py start
 python3 tools/apk_dynamic.py install
 ```
 
-All AVD/user state stays under `work/android/`; runtime evidence belongs under `reports/dynamic/`. KVM is used only when the capability probe confirms it; otherwise same-architecture x86_64 software emulation is allowed only when configured. The booted device ABI list is checked against prepared package native ABIs before installation.
+All AVD/user state stays under `work/android/`; runtime evidence belongs under `reports/dynamic/`. KVM is used only when the capability probe confirms it; otherwise same-architecture x86_64 software emulation is allowed only when configured. The booted runtime compatibility state and actual package installation are used to establish package/runtime ABI compatibility.
 
 ## 3. Runtime observation
 
@@ -81,7 +81,7 @@ For each static hypothesis use:
 
 If runtime evidence materially changes a Medium/High/Critical finding, use one consolidated `apk-validator` task before editing final severity/status.
 
-## 6. Durable outputs
+## 6. Durable outputs and scope reconciliation
 
 Update:
 - `findings/dynamic.md`;
@@ -89,6 +89,13 @@ Update:
 - `findings/coverage.md` with environment/API/ABI/runtime mode/acceleration/root/Frida and unexercised features;
 - `findings/analysis-log.md` with dynamic provenance;
 - the analyst summary when the overall conclusion changes.
+
+Before finalizing, **reconcile stale scope/limitation statements left by the earlier static phase across all durable records and reports**. In particular:
+- no file may still say dynamic analysis/checks were `disabled`, `not run`, or unavailable when a dynamic run actually completed;
+- replace such statements with the precise remaining limitation, for example `dynamic startup observation completed; active validation/login/backend/provider flow not exercised`;
+- distinguish `dynamic analysis ran` from `dynamic.allow_active_validation=false` and from `backend/API testing out of scope`;
+- do not erase historical provenance in `findings/analysis-log.md`; when an older entry describes the state at that earlier point, keep it clearly historical rather than presenting it as current scope;
+- perform a final consistency read of `findings/findings.md`, `findings/dynamic.md`, `findings/coverage.md`, `reports/STATIC_SECURITY_REPORT.md`, and `reports/DYNAMIC_SECURITY_REPORT.md` so their current-scope statements agree.
 
 Create `reports/DYNAMIC_SECURITY_REPORT.md` with:
 1. Runtime environment/capability mode
