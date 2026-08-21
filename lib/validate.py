@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import importlib.util
 import sys, tomllib, json
 
 SUPPORTED = {"ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13", "kali-rolling", "parrot-7"}
@@ -10,6 +11,35 @@ def validate_python(path: Path, errors: list[str]) -> None:
         compile(path.read_text(), str(path), "exec")
     except Exception as exc:
         errors.append(f"bad Python {path.name}: {exc}")
+
+
+def validate_apk_dynamic_logic(path: Path, errors: list[str]) -> None:
+    try:
+        spec = importlib.util.spec_from_file_location("sat_apk_dynamic_validate", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("could not create import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        enabled = {"allow_android11_multiabi_fallback": True}
+        cases = [
+            ("x86_64", [], {"min_sdk": 26}, enabled, True, "x86_64", None, "no-native-code"),
+            ("x86_64", ["x86_64"], {"min_sdk": 26}, enabled, True, "x86_64", None, "native-x86_64"),
+            ("x86_64", ["arm64-v8a"], {"min_sdk": 26}, enabled, True, "x86_64", 30, "android11-x86_64-multiabi-translation"),
+            ("x86_64", ["arm64-v8a"], {"min_sdk": 31}, enabled, False, None, None, None),
+            ("aarch64", ["arm64-v8a"], {"min_sdk": 26}, enabled, False, None, None, None),
+        ]
+        for host, abis, meta, dynamic, supported, image_abi, api_override, abi_mode in cases:
+            result = module.runtime_plan(host, abis, meta, dynamic)
+            if bool(result.get("supported")) != supported:
+                raise AssertionError(f"runtime_plan supported mismatch for {host}/{abis}/{meta}: {result}")
+            if supported:
+                if result.get("image_abi") != image_abi or result.get("api_override") != api_override or result.get("abi_mode") != abi_mode:
+                    raise AssertionError(f"runtime_plan mismatch for {host}/{abis}/{meta}: {result}")
+        disabled = module.runtime_plan("x86_64", ["arm64-v8a"], {"min_sdk": 26}, {"allow_android11_multiabi_fallback": False})
+        if disabled.get("supported"):
+            raise AssertionError("ARM-only plan should be unsupported when Android 11 multi-ABI fallback is disabled")
+    except Exception as exc:
+        errors.append(f"APK dynamic runtime-plan self-test failed: {exc}")
 
 
 def validate_module(root: Path, module: str):
@@ -64,6 +94,8 @@ def validate_module(root: Path, module: str):
         ):
             path = template / relative
             if path.exists(): validate_python(path, errors)
+        dynamic_path = template / "tools" / "apk_dynamic.py"
+        if dynamic_path.exists(): validate_apk_dynamic_logic(dynamic_path, errors)
 
         orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
         for field, lower, upper in (("research_max_questions",1,20),("research_max_sources_per_question",1,20),("research_max_report_words",200,3000)):
