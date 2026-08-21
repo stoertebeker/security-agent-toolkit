@@ -1,10 +1,22 @@
 [module]
 id="firmware"
 name="firmware"
-description="Static firmware security analysis"
+description="Deterministic static firmware security analysis with focused reverse engineering"
 version=1
+
 [dependencies]
-required=["file", "binutils", "ripgrep", "yara", "firmware-extractors", "unblob", "binwalk", "ghidra"]
+required=[
+  "file",
+  "binutils",
+  "ripgrep",
+  "yara",
+  "firmware-extractors",
+  "unblob",
+  "binwalk",
+  "semgrep",
+  "ghidra"
+]
 optional=[]
+
 [platforms]
 supported=["ubuntu-24.04","ubuntu-26.04","debian-12","debian-13","kali-rolling","parrot-7"]
