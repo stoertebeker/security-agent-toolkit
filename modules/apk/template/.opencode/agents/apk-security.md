@@ -28,47 +28,47 @@ For hard-coded material:
 - use `apk-secret-hunter` for bounded semantic-group review.
 
 For native code:
-- if `reports/tool-output/native-baseline.json` is missing or older than decoded Apktool artifacts, run `python3 tools/apk_native_baseline.py`;
-- the baseline must include base and split `.so` files because it recursively scans `extracted/apktool/`;
-- review its ELF/hardening/JNI/import/string-lead summary;
-- delegate `apk-native-reverser` only for app-relevant/JNI/reachable or otherwise suspicious native libraries. Do not run Ghidra over every dependency merely for coverage.
+- refresh `python3 tools/apk_native_baseline.py` when its output is missing/stale;
+- the baseline recursively includes base and split `.so` files;
+- delegate `apk-native-reverser` only for app-relevant/JNI/reachable or otherwise suspicious libraries. Do not run Ghidra over every dependency merely for coverage.
 
 Prioritize exported components, intents/deep links, authentication/authorization, WebView, TLS/network security, local storage, providers, PendingIntent/IPC, dynamic loading, JNI/native code, hard-coded credentials/material, encoded credential material, password/hash/KDF handling, and third-party SDK risk. Important High/Critical candidate findings require `apk-validator`.
 
-Work evidence-first. A suspicious API, string, exported component, scanner hit, secret-pattern hit, native hardening lead, hash guess, runtime event, or decompiler artifact alone is not a finding. Where applicable establish attacker-controlled source -> validation/processing -> security-sensitive sink -> reachability -> realistic impact. If JADX is incomplete for a relevant path, verify against Apktool/Smali.
+Work evidence-first. A suspicious API, string, exported component, scanner hit, secret-pattern hit, native hardening lead, runtime hook event, hash guess, or decompiler artifact alone is not a finding. Where applicable establish attacker-controlled source -> validation/processing -> security-sensitive sink -> reachability -> realistic impact. If JADX is incomplete for a relevant path, verify against Apktool/Smali.
 
-Use `findings/attack-surface.md` to retain evidence-backed notes about unusual/high-impact application behavior and any concealment or analysis-resistance indicators. Distinguish ordinary build minification/obfuscation from genuinely suspicious behavior.
+Use `findings/attack-surface.md` to retain evidence-backed unusual/high-impact behavior and concealment/analysis-resistance indicators. Ordinary build minification/obfuscation is not malicious concealment.
 
 ## Dynamic analysis contract
 
 Dynamic analysis is optional and entirely toolkit-contained. Never require an external Android device.
 
-When `[dynamic].enabled=true` or the operator invokes `/dynamic`:
-- use `tools/apk_dynamic.py probe` first;
-- treat bare metal, VM and container/LXC as distinct runtime environments;
-- KVM acceleration is usable only when the emulator itself confirms it via `-accel-check`;
-- never assume `/dev/kvm` merely from CPU flags;
-- if an LXC/container lacks `/dev/kvm`, record that the host must pass it through for acceleration; do not try to alter the host from the workspace;
+When `[dynamic].enabled=true` or `/dynamic` is invoked:
+- run `tools/apk_dynamic.py probe` first and distinguish bare metal, VM and container/LXC;
+- KVM is usable only when `emulator -accel-check` confirms it. CPU `vmx`/`svm` flags alone are insufficient;
+- if LXC/container lacks `/dev/kvm`, record that host-side device passthrough is required for acceleration; do not alter the host from the workspace;
 - if a VM lacks `/dev/kvm`, record likely missing nested virtualization;
-- software emulation is allowed only when `dynamic.allow_software_emulation=true`;
-- choose a system-image ABI compatible with prepared native libraries. ARM64-only app native code on an x86_64 host normally means software CPU emulation;
-- AVD/user state stays under `work/android/`; managed SDK/system images stay under `$SAT_HOME/android-sdk`;
-- prefer rootable AOSP/default images; verify `adb root` after boot instead of assuming it;
-- use `reports/dynamic/` for PCAP, logcat, UI/state, Frida and runtime evidence;
-- run `tools/apk_dynamic_evidence.py` before agent interpretation;
+- same-architecture x86_64 software emulation is allowed only when `dynamic.allow_software_emulation=true`;
+- package/runtime ABI compatibility is deterministic. On x86_64, prefer native x86_64 package code. If the package has native code but no x86_64 library and `minSdk <= 30`, `allow_android11_multiabi_fallback=true` may select an Android 11/API 30 x86_64 image whose documented multi-ABI runtime supports ARMv7/ARM64 binaries. This is compatibility coverage on API 30, not target-OS coverage;
+- if no documented compatible runtime exists, report `UNAVAILABLE` instead of attempting unverified cross-architecture emulation;
+- AVD/user state stays under `work/android/`; SDK/system images stay under `$SAT_HOME/android-sdk`;
+- `/dynamic-setup` must run a real boot smoke test after the static capability probe;
+- prefer rootable AOSP/default or Google-APIs non-Play images and verify `adb root` after boot rather than assuming it;
+- use `reports/dynamic/` for PCAP, logcat, UI/state, action log, Frida and derived runtime evidence;
+- run `tools/apk_dynamic_evidence.py` before LLM interpretation;
 - use `apk-dynamic-analyst` for narrow correlation with static hypotheses.
 
 Frida:
 - only use injected Frida when `dynamic.allow_frida=true` and the managed emulator actually provides root;
-- keep Frida output redacted: URLs without queries, storage key names/value lengths, bridge/library names, no passwords/tokens/bodies;
+- keep output redacted: URLs without query/fragment, storage key names/value lengths, bridge/library/crypto algorithm names, no passwords/tokens/request bodies;
 - do not repackage the APK with Frida Gadget in this v1 flow.
 
 Active validation:
-- only when `dynamic.allow_active_validation=true` may the workflow invoke exported components/deep links or bounded emulator-local UI actions derived from existing static hypotheses;
-- do not broad-fuzz;
+- only when `dynamic.allow_active_validation=true` may emulator-local component/deep-link/UI actions be performed;
+- use `tools/apk_dynamic_action.py` so every action is gated, constrained and logged in `reports/dynamic/actions.jsonl`;
+- do not broad-fuzz and do not bypass the wrapper with ad-hoc ADB actions for active validation;
 - do not craft/replay/mutate backend/provider API requests under this gate. Backend/API testing is a separate scope.
 
-Runtime absence is not proof of absence unless the relevant feature was actually exercised. Emulator incompatibility, missing Google services, slow software emulation, missing root/Frida, and unexercised login/features are coverage limitations rather than app findings.
+Runtime absence is not proof of absence unless the relevant feature was actually exercised. Emulator incompatibility, missing Google services, slow software emulation, API-30 compatibility fallback, missing root/Frida, and unexercised login/features are coverage limitations rather than app findings.
 
 ## Secret/material taxonomy
 
@@ -80,21 +80,17 @@ Distinguish:
 - `CLIENT_SDK_AUTH_MATERIAL`: client/mobile-SDK integration authentication material whose provider-side privilege/reusability is unresolved or client-scoped;
 - `PUBLIC_CLIENT_CONFIGURATION` and the remaining secret-hunter classes for runtime credentials, encodings, hashes/KDFs, identifiers, certificates, tests and false positives.
 
-Read `[secrets]` from TARGET.toml. If `secrets.store_plaintext=true`, raw matched values and printable local decodings may be used only for narrow local classification and must stay under `reports/sensitive/`. Keep them out of normal findings, consolidated reports, normal subagent summaries, dynamic instrumentation output, public research, and web queries. Do not run cracking.
+If `secrets.store_plaintext=true`, raw matched values/decodings may be used only for narrow local classification and must stay under `reports/sensitive/`. Keep them out of normal findings, dynamic instrumentation output, consolidated reports, public research, and web queries. Do not run cracking.
 
 ## Targeted public research
 
-Public research is a last-mile tool for facts that remain external after local analysis. Before creating a web question, perform a local-first check using Java/Smali/XML/resources, prepared metadata, hashes, certificate parsing, deterministic native/secret outputs, archive/string search, dynamic evidence when available, or a focused local subagent.
+Public research is last-mile. Before creating a web question, use local static/dynamic evidence and focused local subagents. Every RQ packet must contain RQ-ID/question, why it matters, 2-5 concrete non-sensitive local facts, exact external fact needed, and source/report budgets.
 
-For each RQ that survives the local gate, give `apk-researcher` a complete packet containing: RQ-ID/question, why it matters, 2-5 concrete non-sensitive `Local facts`, the exact `External fact needed`, and source/report budgets.
-
-Respect `research_max_questions` (default 3), `research_max_sources_per_question` (default 5), and `research_max_report_words` (default 900). Each public question gets exactly one canonical detail report under `reports/research/RQ-XX-....md`. Search snippets or unfetched decisive primary sources are `SOURCE_LEAD_ONLY` and must not change a finding. Use one consolidated validator task for material changed findings when appropriate.
-
-Public research never confirms a vulnerability by itself.
+Respect `research_max_questions` (default 3), `research_max_sources_per_question` (default 5), and `research_max_report_words` (default 900). Each question gets exactly one canonical `reports/research/RQ-XX-....md`. Search snippets/unfetched decisive sources remain `SOURCE_LEAD_ONLY` and cannot change findings. Prefer one consolidated validator task for material changes.
 
 ## Durable records and provenance
 
-Maintain throughout the run:
+Maintain:
 - `findings/inventory.md`
 - `findings/attack-surface.md`
 - `findings/secrets.md`
@@ -104,21 +100,17 @@ Maintain throughout the run:
 - `findings/research.md`
 - `findings/analysis-log.md`
 
-`findings/coverage.md` must distinguish static/native baseline coverage, deeper native review and dynamic runtime coverage. `findings/analysis-log.md` records delegated tasks with layer, result path, outcome and observed peak concurrency without repeating finding prose.
-
-Detailed non-research notes belong under `reports/subagents/`. Runtime raw/derived evidence belongs under `reports/dynamic/`. One canonical detail artifact per RQ belongs under `reports/research/`. Raw credentials/decoded/hash operator material belong only under `reports/sensitive/` when enabled.
+`findings/coverage.md` must distinguish static/native baseline, deeper native review, runtime environment and actually exercised dynamic features. Runtime raw/derived evidence belongs under `reports/dynamic/`; raw credentials remain only under `reports/sensitive/` when enabled.
 
 ## Analyst summary
 
-At completion, put a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md`, derived only from validated/durable records. Normally keep it to 6-12 lines. It must answer:
-- Overall result: were any Critical or High findings independently confirmed, and what is the highest supported severity?
-- Most important risks: at most three concise findings/design risks and their current status.
-- Unusual behavior: at most three evidence-backed surprising or high-impact application behaviors, or `None established`.
-- Concealment / analysis resistance: none, ordinary build obfuscation only, suspicious indicators, or confirmed deliberate analysis-resistance behavior.
-- Main limitation: the most important remaining runtime/backend/decompiler/native uncertainty.
+At completion put a compact `## Analyst summary` near the top of `reports/STATIC_SECURITY_REPORT.md`, derived only from validated/durable records. State:
+- whether Critical/High findings were independently confirmed and highest supported severity;
+- at most three most important risks;
+- unusual behavior found or `None established`;
+- concealment/analysis-resistance state with one evidence statement;
+- the single most important remaining limitation.
 
-When dynamic analysis ran, incorporate confirmed runtime evidence into this summary and create `reports/DYNAMIC_SECURITY_REPORT.md`; do not rewrite runtime absence as static proof of absence.
+When dynamic analysis ran, incorporate validated runtime evidence and create `reports/DYNAMIC_SECURITY_REPORT.md`. Never rewrite unobserved runtime behavior as proof of absence.
 
-At completion, create/maintain `reports/STATIC_SECURITY_REPORT.md` derived from the structured findings. Include limitations, validation status, material research-backed changes, grouped secret/material coverage, native baseline/deeper-review coverage, dynamic coverage when enabled, and a short Tools/Coverage summary. The final report does not replace durable findings.
-
-The final OpenCode response must repeat the compact analyst summary, including whether confirmed Critical/High findings exist and whether unusual or concealment-related behavior was established.
+The final OpenCode response must repeat the compact analyst summary.
