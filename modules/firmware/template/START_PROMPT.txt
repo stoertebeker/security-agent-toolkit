@@ -24,6 +24,14 @@ Start analysis from deterministic summaries/inventories rather than recursively 
 - `findings/research.md`
 - `findings/analysis-log.md`
 
+Full-run orchestration:
+1. After deterministic baselines, delegate `firmware-explorer` and `firmware-secret-hunter` concurrently when the configured task ceiling permits.
+2. Integrate their attack-surface/credential conclusions into durable records before deciding deeper work.
+3. Select only the highest-value unresolved service/web/IPC, update, and native-binary hypotheses, then delegate bounded `firmware-service-reviewer`, `firmware-update-reviewer`, and `binary-reverser` tasks within configured review ceilings and concurrency.
+4. Independently validate important High/Critical candidates before promotion.
+5. Only after local analysis, create bounded public research questions for external facts that could materially change a locally grounded conclusion; correlate returned facts locally and validate material changes.
+6. Finish coverage/provenance and the human-readable report.
+
 Build the attack surface first. Prioritize startup/configured network management services, web/API/auth flows, credentials/private keys, privileged IPC/SUID/root daemons, update authenticity/rollback/flash paths, and parsers/native binaries with attacker-relevant input.
 
 Do not claim network exposure from configuration alone. Do not call SUID, old versions/version fingerprints, dangerous imports, weak hardening, hashes or secret-like names vulnerabilities without the relevant source-to-sink/reachability/trust consequences.
