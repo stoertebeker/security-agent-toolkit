@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import importlib.util
+import re
 import sys, tomllib, json
 
 SUPPORTED = {"ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13", "kali-rolling", "parrot-7"}
@@ -147,6 +148,23 @@ def validate_module(root: Path, module: str):
         ):
             path = template / relative
             if path.exists(): validate_python(path, errors)
+
+        reverser_path = template / ".opencode" / "agents" / "binary-reverser.md"
+        if reverser_path.exists():
+            reverser_text = reverser_path.read_text(errors="replace")
+            for token in ("analyzeHeadless", "work/ghidra/", "host `objdump`"):
+                if token not in reverser_text:
+                    errors.append(f"Firmware binary-reverser must enforce managed Ghidra fallback ({token})")
+            steps_match = re.search(r"(?m)^steps:\s*(\d+)\s*$", reverser_text)
+            if not steps_match or int(steps_match.group(1)) < 12:
+                errors.append("Firmware binary-reverser needs at least 12 steps for lightweight triage plus Ghidra escalation")
+
+        analyze_path = template / ".opencode" / "commands" / "analyze.md"
+        if analyze_path.exists():
+            analyze_text = analyze_path.read_text(errors="replace")
+            for token in ("analyzeHeadless", "Ghidra-backed", "host `objdump`"):
+                if token not in analyze_text:
+                    errors.append(f"Firmware /analyze must enforce native Ghidra escalation ({token})")
 
         orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
         for field, lower, upper in (("research_max_questions",1,20),("research_max_sources_per_question",1,20),("research_max_report_words",200,3000)):
