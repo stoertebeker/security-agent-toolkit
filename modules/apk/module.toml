@@ -18,7 +18,8 @@ required=[
   "ghidra"
 ]
 optional=[
-  "android-emulator"
+  "android-emulator",
+  "tcpdump"
 ]
 
 [platforms]
