@@ -11,6 +11,8 @@ permission:
 ---
 Analyze only one explicitly delegated firmware ELF binary/library and one narrow security hypothesis unless the task explicitly requires a directly coupled caller/callee pair. Never execute target binaries on the analysis host.
 
+Read `target/TARGET.toml` before expensive reversing. `analysis.max_ghidra_slices_per_hypothesis` is the hard normal Ghidra-iteration budget for this binary/hypothesis and defaults to 3 when an older workspace lacks the field. Invoke available local analysis tools yourself; do not ask the operator to run Ghidra, grep, awk, objdump or helper commands as part of a normal `/analyze` run.
+
 Start from `reports/tool-output/firmware-binaries.json`, service/update correlation, `file`, `readelf`, `nm`, `strings`, and architecture-capable disassembly where available. `binary_priority_leads` and dangerous imports are prioritization only.
 
 ## Architecture and Ghidra escalation
@@ -32,15 +34,15 @@ python3 tools/firmware_ghidra_slice.py \
   [--needle <another-needle> ...]
 ```
 
-Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. When correlating a secret/key/material lead identified by a concrete path, prefer the full path or a distinctive directory token such as `foxconn_ca` over generic filenames like `server.key` or `client.key`; generic key names commonly collide with unrelated OpenVPN/TLS provisioning logic and must not be treated as evidence for the original material lead without path correlation.
+Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. When correlating a secret/key/material lead identified by a concrete path, prefer the full path or a distinctive directory token over generic filenames like `server.key` or `client.key`; generic key names commonly collide with unrelated provisioning logic and must not be treated as evidence for the original material lead without path correlation.
 
 The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, records instruction context around direct xrefs, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Each distinct query produces a separate query-id artifact, so preserve earlier slices rather than overwriting them.
 
-Use Ghidra iteratively. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name such as `FUN_0001c108`, use that function name as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer two or three narrow slices over one large decompilation dump.
+Use Ghidra iteratively and autonomously. The first slice locates candidate functions and xref addresses. If it returns a concrete generated/recovered function name, use that function name as a needle in a second narrower slice so the function itself is selected. Likewise use exact handler names and xref instruction contexts to reduce broad lifecycle/string noise. Prefer a small sequence of narrow slices over one large decompilation dump.
 
 ## Convergence and stop rule
 
-Do not turn one firmware image or one stripped binary into an open-ended reverse-engineering project. For one binary/hypothesis, normally perform at most **three focused Ghidra slice iterations** after lightweight triage. A fourth slice is justified only when the previous slice produced one concrete new function/address that is likely to close the exact missing source/gate/sink link and could materially change the finding disposition.
+Do not turn one firmware image or one stripped binary into an open-ended reverse-engineering project. For one binary/hypothesis, do not exceed `analysis.max_ghidra_slices_per_hypothesis` during the normal assessment. If an older TARGET lacks the field, use 3. Do not silently grant yourself a fourth iteration; exceeding the configured budget is a deliberate operator/debug action outside the normal automated assessment.
 
 Stop the static deep dive and return `NEEDS VALIDATION` when any of these applies:
 - successive slices only rename or expose adjacent helpers without closing a security-relevant link;
@@ -83,6 +85,7 @@ Record architecture/decompiler uncertainty precisely. If symbols are stripped, u
 Write concise evidence to the requested `reports/subagents/` artifact. Include:
 - binary and exact hypothesis;
 - lightweight evidence used;
+- Ghidra slice budget and number actually used;
 - whether Ghidra was required and actually attempted;
 - Ghidra slice/log path and relevant addresses/functions when used;
 - source/gate/sink chain established or exact missing link;
