@@ -14,6 +14,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "target" / "TARGET.toml"
+SAT_HOME = Path(os.environ.get("SAT_HOME", Path.home() / ".local/share/security-agent-toolkit"))
 WORK = ROOT / "work"
 TMP = WORK / "tmp"
 EXTRACT = WORK / "extracted"
@@ -72,8 +73,17 @@ def sha256(path: Path) -> str:
 
 def env() -> dict[str, str]:
     result = os.environ.copy()
-    result.update({"TMPDIR": str(TMP), "TMP": str(TMP), "TEMP": str(TMP)})
+    result.update({
+        "PATH": f"{SAT_HOME / 'bin'}:{result.get('PATH', '')}",
+        "TMPDIR": str(TMP),
+        "TMP": str(TMP),
+        "TEMP": str(TMP),
+    })
     return result
+
+
+def which(name: str) -> str | None:
+    return shutil.which(name, path=env()["PATH"])
 
 
 def run(command: list[str], timeout: int | None = 1200) -> subprocess.CompletedProcess:
@@ -121,8 +131,6 @@ def audit_extraction(root: Path) -> dict:
                     if target.is_absolute():
                         absolute_links.append({"path": relative(path), "target": raw_target})
                     else:
-                        # Resolve only to classify where the link would point. No
-                        # target content is opened/followed by this audit.
                         resolved = (path.parent / target).resolve(strict=False)
                         try:
                             resolved.relative_to(root_resolved)
@@ -150,12 +158,6 @@ def audit_extraction(root: Path) -> dict:
 
 
 def marker_exists_without_following(base: Path, marker: str) -> bool:
-    """Check an extracted target-root marker using lstat only.
-
-    Intermediate symlinks are rejected so a malicious `etc -> /etc` cannot make
-    host `/etc/passwd` count as a firmware rootfs marker. A final symlink can be
-    counted as the marker itself without following its target.
-    """
     parts = Path(marker).parts
     current = base
     for index, part in enumerate(parts):
@@ -173,8 +175,7 @@ def marker_exists_without_following(base: Path, marker: str) -> bool:
 
 def real_directory(path: Path) -> bool:
     try:
-        st = path.lstat()
-        return stat.S_ISDIR(st.st_mode)
+        return stat.S_ISDIR(path.lstat().st_mode)
     except OSError:
         return False
 
@@ -191,13 +192,8 @@ def rootfs_candidates(root: Path, limit: int) -> list[dict]:
                 markers.append(marker)
         return total, markers
 
-    # Traverse the extraction tree with followlinks=False. Candidate creation is
-    # driven by marker filenames and shallow directory scoring, avoiding Path.rglob
-    # on untrusted symlink-rich trees.
     for current, dirnames, filenames in os.walk(root, followlinks=False):
         current_path = Path(current)
-        # Prevent even accidental future os.walk behavior from descending through
-        # symlink directories by pruning them explicitly.
         dirnames[:] = [name for name in dirnames if real_directory(current_path / name)]
 
         candidate_dirs: list[Path] = []
@@ -225,8 +221,7 @@ def rootfs_candidates(root: Path, limit: int) -> list[dict]:
             if previous is None or total > previous["score"]:
                 scores[candidate] = {"path": relative(candidate), "score": total, "markers": markers}
 
-    result = sorted(scores.values(), key=lambda item: (-item["score"], item["path"]))
-    return result[:limit]
+    return sorted(scores.values(), key=lambda item: (-item["score"], item["path"]))[:limit]
 
 
 def write_text_summary(state: dict) -> None:
@@ -235,7 +230,9 @@ def write_text_summary(state: dict) -> None:
         f"input: {state['input']}",
         f"sha256: {state['sha256']}",
         f"file: {state.get('file_description') or 'unknown'}",
+        f"binwalk status: {state.get('binwalk_status')}",
         f"unblob status: {state['unblob']['status']}",
+        f"unblob exit code: {state['unblob'].get('exit_code')}",
         f"extraction files: {state['extraction_audit']['files']}",
         f"extraction directories: {state['extraction_audit']['directories']}",
         f"symlinks: {state['extraction_audit']['symlinks']}",
@@ -268,8 +265,7 @@ def main() -> int:
             primary = old.get("primary_rootfs")
             primary_ok = True
             if primary:
-                primary_path = ROOT / primary
-                primary_ok = real_directory(primary_path)
+                primary_ok = real_directory(ROOT / primary)
             if old.get("sha256") == digest and real_directory(EXTRACT) and primary_ok:
                 print("[=] Preparation artifacts are fresh for the current firmware image")
                 return 0
@@ -284,25 +280,32 @@ def main() -> int:
     file_description = (file_proc.stdout or "").strip()
     (REPORT / "firmware-file.txt").write_text((file_proc.stdout or "") + ("" if (file_proc.stdout or "").endswith("\n") else "\n"), encoding="utf-8")
 
+    binwalk_path = which("binwalk")
     binwalk_status = "missing"
-    if shutil.which("binwalk"):
-        proc = run(["binwalk", str(image)], timeout=600)
+    if binwalk_path:
+        proc = run([binwalk_path, str(image)], timeout=600)
         (REPORT / "firmware-binwalk.txt").write_text(proc.stdout or "", encoding="utf-8")
         binwalk_status = "ok" if proc.returncode == 0 else f"exit-{proc.returncode}"
+    else:
+        (REPORT / "firmware-binwalk.txt").write_text("binwalk not found in managed/system PATH\n", encoding="utf-8")
 
-    unblob_info = {"status": "missing", "exit_code": None}
-    if shutil.which("unblob"):
-        dependency_proc = run(["unblob", "--show-external-dependencies"], timeout=120)
+    unblob_path = which("unblob")
+    unblob_info = {"status": "missing", "exit_code": None, "path": None}
+    if unblob_path:
+        dependency_proc = run([unblob_path, "--show-external-dependencies"], timeout=120)
         (REPORT / "unblob-dependencies.txt").write_text(dependency_proc.stdout or "", encoding="utf-8")
         depth = int(fw.get("extract_depth", 10))
         processes = int(fw.get("extract_processes", min(4, os.cpu_count() or 1)))
         report_path = REPORT / "unblob-report.json"
         proc = run([
-            "unblob", "-e", str(EXTRACT), "-d", str(depth), "-p", str(processes),
+            unblob_path, "-e", str(EXTRACT), "-d", str(depth), "-p", str(processes),
             "--report", str(report_path), str(image),
         ], timeout=int(fw.get("extract_timeout_seconds", 3600)))
         (REPORT / "unblob.txt").write_text(proc.stdout or "", encoding="utf-8")
-        unblob_info = {"status": "ok" if proc.returncode == 0 else "degraded", "exit_code": proc.returncode}
+        unblob_info = {"status": "ok" if proc.returncode == 0 else "degraded", "exit_code": proc.returncode, "path": unblob_path}
+    else:
+        (REPORT / "unblob-dependencies.txt").write_text("unblob not found in managed/system PATH\n", encoding="utf-8")
+        (REPORT / "unblob.txt").write_text("unblob not found in managed/system PATH\n", encoding="utf-8")
 
     audit = audit_extraction(EXTRACT)
     candidates = rootfs_candidates(EXTRACT, int(fw.get("max_rootfs_candidates", 20)))
@@ -312,10 +315,10 @@ def main() -> int:
 
     if unblob_info["status"] == "missing":
         coverage = "degraded"
-        limitations.append("unblob is unavailable; recursive extraction coverage is not established")
+        limitations.append(f"unblob is unavailable in managed/system PATH; expected managed location is {SAT_HOME / 'bin' / 'unblob'}")
     elif unblob_info["status"] == "degraded":
         coverage = "degraded"
-        limitations.append("unblob returned non-zero; usable extracted artifacts were retained and must be treated as degraded coverage")
+        limitations.append(f"unblob returned exit code {unblob_info['exit_code']}; see reports/tool-output/unblob.txt")
     if not candidates:
         coverage = "degraded"
         limitations.append("no conventional root filesystem candidate was established; later analysis must treat the extraction tree as unstructured")
@@ -347,6 +350,9 @@ def main() -> int:
     print(f"[+] Firmware preparation complete: {coverage}")
     print(f"    primary rootfs: {primary or 'not established'}")
     print(f"    files: {audit['files']} symlinks: {audit['symlinks']}")
+    if limitations:
+        for item in limitations:
+            print(f"    limitation: {item}")
     return 0
 
 
