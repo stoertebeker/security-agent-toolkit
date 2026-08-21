@@ -128,7 +128,9 @@ check = "command -v binwalk"
 [dependencies.unblob]
 kind = "handler"
 handler = "install_unblob"
-check = "command -v unblob"
+# Require the toolkit wrapper, not merely uv's direct symlink, because the
+# wrapper exposes unblob's dependency-provided console scripts and sbin tools.
+check = "test -x \"$SAT_HOME/bin/unblob\" && test ! -L \"$SAT_HOME/bin/unblob\" && grep -q 'python-tools/unblob/bin' \"$SAT_HOME/bin/unblob\""
 package = "unblob==26.6.4"
 executable = "unblob"
 
