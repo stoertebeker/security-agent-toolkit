@@ -263,10 +263,16 @@ def main() -> int:
         try:
             old = json.loads(STATE.read_text())
             primary = old.get("primary_rootfs")
-            primary_ok = True
-            if primary:
-                primary_ok = real_directory(ROOT / primary)
-            if old.get("sha256") == digest and real_directory(EXTRACT) and primary_ok:
+            primary_ok = bool(primary and real_directory(ROOT / primary))
+            extracted_files = int(old.get("extraction_audit", {}).get("files", 0))
+            unblob_status = old.get("unblob", {}).get("status")
+            reusable = (
+                old.get("sha256") == digest
+                and real_directory(EXTRACT)
+                and unblob_status != "missing"
+                and (primary_ok or extracted_files > 0)
+            )
+            if reusable:
                 print("[=] Preparation artifacts are fresh for the current firmware image")
                 return 0
         except Exception:
