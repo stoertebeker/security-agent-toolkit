@@ -61,6 +61,38 @@ def which(name: str) -> str | None:
     return shutil.which(name, path=dependency_path())
 
 
+def real_dir_inside(rootfs: Path, relative: str) -> Path | None:
+    candidate = rootfs / relative
+    try:
+        st = candidate.lstat()
+    except OSError:
+        return None
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        return None
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(rootfs)
+    except ValueError:
+        return None
+    return resolved
+
+
+def firmware_library_paths(rootfs: Path) -> list[Path]:
+    # Ordered paths only from the prepared target rootfs. Ghidra uses these
+    # during ELF import so target libraries can resolve imports instead of
+    # accidentally consulting unrelated host libraries.
+    candidates = [
+        "lib", "usr/lib", "usr/local/lib", "usr/local/samba/lib",
+        "opt/lib", "opt/usr/lib",
+    ]
+    paths: list[Path] = []
+    for relative in candidates:
+        path = real_dir_inside(rootfs, relative)
+        if path and path not in paths:
+            paths.append(path)
+    return paths
+
+
 def resolve_binary(rootfs: Path, raw: str) -> Path:
     supplied = Path(raw)
     if supplied.is_absolute():
@@ -101,6 +133,10 @@ def main() -> int:
     parser.add_argument("--needle", action="append", default=[], help="String/symbol needle; repeat as needed")
     parser.add_argument("--max-functions", type=int, default=12)
     parser.add_argument("--timeout", type=int, default=900, help="Ghidra analysis timeout per file in seconds")
+    parser.add_argument(
+        "--decompile-timeout", type=int, default=180,
+        help="Decompiler timeout per selected function in seconds",
+    )
     args = parser.parse_args()
 
     if not args.needle:
@@ -109,6 +145,8 @@ def main() -> int:
         fail("--max-functions must be in range 1..40")
     if not 60 <= args.timeout <= 3600:
         fail("--timeout must be in range 60..3600 seconds")
+    if not 30 <= args.decompile_timeout <= 600:
+        fail("--decompile-timeout must be in range 30..600 seconds")
 
     rootfs = load_authorized_rootfs()
     binary = resolve_binary(rootfs, args.binary)
@@ -130,6 +168,7 @@ def main() -> int:
     output = slice_root / f"{slug}.txt"
     log = REPORT / f"ghidra-{slug}.log"
     project_name = f"sat-{slug}"
+    library_paths = firmware_library_paths(rootfs)
 
     command = [
         analyze_headless,
@@ -138,9 +177,14 @@ def main() -> int:
         "-import", str(binary),
         "-overwrite",
         "-analysisTimeoutPerFile", str(args.timeout),
-        "-scriptPath", str(SCRIPT_DIR),
-        "-postScript", script.name, str(output), str(args.max_functions), *args.needle,
     ]
+    if library_paths:
+        command.extend(["-librarySearchPaths", ";".join(str(path) for path in library_paths)])
+    command.extend([
+        "-scriptPath", str(SCRIPT_DIR),
+        "-postScript", script.name, str(output), str(args.max_functions),
+        str(args.decompile_timeout), *args.needle,
+    ])
 
     env = os.environ.copy()
     env["PATH"] = dependency_path()
@@ -151,6 +195,12 @@ def main() -> int:
     tmp_opt = f"-Djava.io.tmpdir={TMP}"
     env["JAVA_TOOL_OPTIONS"] = f"{java_opts} {tmp_opt}".strip()
 
+    # Overall wrapper budget includes auto-analysis plus multiple selected
+    # function decompilations. Keep it bounded but do not cut off legitimate
+    # per-function retries for large stripped vendor dispatchers.
+    wrapper_timeout = args.timeout + (min(args.max_functions, 12) * args.decompile_timeout) + 180
+    wrapper_timeout = min(wrapper_timeout, 5400)
+
     try:
         proc = subprocess.run(
             command,
@@ -160,7 +210,7 @@ def main() -> int:
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            timeout=args.timeout + 180,
+            timeout=wrapper_timeout,
             check=False,
         )
         stdout = proc.stdout or ""
@@ -176,6 +226,9 @@ def main() -> int:
         f"project: {project_root / project_name}",
         f"slice: {output}",
         f"needles: {', '.join(args.needle)}",
+        f"library_search_paths: {', '.join(str(path.relative_to(rootfs)) for path in library_paths) or '(none)'}",
+        f"analysis_timeout_seconds: {args.timeout}",
+        f"decompile_timeout_seconds: {args.decompile_timeout}",
         f"exit_code: {proc.returncode}",
         "",
         "# analyzeHeadless output",
