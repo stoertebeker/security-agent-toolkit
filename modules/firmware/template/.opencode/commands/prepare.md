@@ -17,6 +17,7 @@ python3 tools/firmware_secret_group.py
 
 3. Read only the compact deterministic summaries first:
 - `reports/tool-output/firmware-preparation.txt`
+- `reports/tool-output/unblob-dependencies.txt`
 - `reports/tool-output/firmware-baseline.txt`
 - `reports/tool-output/firmware-services.txt`
 - `reports/tool-output/firmware-update-leads.txt`
@@ -25,5 +26,5 @@ python3 tools/firmware_secret_group.py
 - `reports/tool-output/firmware-secret-groups.txt`
 
 4. Update `findings/inventory.md` and the preparation/baseline/secret/component coverage portions of `findings/coverage.md`. Do not invent service reachability, version applicability or vulnerabilities.
-5. Record any degraded extraction, rootfs ambiguity, absolute/escaping symlinks, opaque regions, missing extractor dependencies, or baseline parse failures.
-6. Give the operator a compact preparation summary: input/hash, extraction status, primary rootfs, file/ELF/service/update/group/component counts, and the highest-value next review areas.
+5. Record any degraded extraction, rootfs ambiguity, absolute/escaping symlinks, opaque regions, missing extractor dependencies, or baseline parse failures. `unblob --show-external-dependencies` reports tool presence rather than a guarantee that every installed extractor version is new enough for the target format; actual extraction failures remain coverage evidence.
+6. Give the operator a compact preparation summary: input/hash, extraction status, primary rootfs, file/ELF/service/update/group/component counts, extractor-dependency limitations, and the highest-value next review areas.
