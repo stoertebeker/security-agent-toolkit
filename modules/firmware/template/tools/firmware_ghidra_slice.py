@@ -78,9 +78,6 @@ def real_dir_inside(rootfs: Path, relative: str) -> Path | None:
 
 
 def firmware_library_paths(rootfs: Path) -> list[Path]:
-    # Ordered paths only from the prepared target rootfs. Ghidra uses these
-    # during ELF import so target libraries can resolve imports instead of
-    # accidentally consulting unrelated host libraries.
     candidates = [
         "lib", "usr/lib", "usr/local/lib", "usr/local/samba/lib",
         "opt/lib", "opt/usr/lib",
@@ -127,6 +124,19 @@ def slug_for(path: Path) -> str:
     return f"{stem}-{digest}"
 
 
+def query_slug(needles: list[str], max_functions: int, decompile_timeout: int) -> str:
+    material = json.dumps(
+        {
+            "needles": needles,
+            "max_functions": max_functions,
+            "decompile_timeout": decompile_timeout,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()[:10]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Focused Ghidra decompilation for one firmware ELF")
     parser.add_argument("--binary", required=True, help="Path relative to primary rootfs, or prepared-rootfs path")
@@ -157,7 +167,9 @@ def main() -> int:
     if not script.is_file():
         fail(f"Ghidra post-script missing: {script}")
 
-    slug = slug_for(binary)
+    binary_slug = slug_for(binary)
+    query_id = query_slug(args.needle, args.max_functions, args.decompile_timeout)
+    run_slug = f"{binary_slug}-{query_id}"
     project_root = WORK / "ghidra" / "projects"
     slice_root = WORK / "ghidra" / "slices"
     ghidra_state = WORK / "cache" / "ghidra"
@@ -170,9 +182,9 @@ def main() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
     REPORT.mkdir(parents=True, exist_ok=True)
 
-    output = slice_root / f"{slug}.txt"
-    log = REPORT / f"ghidra-{slug}.log"
-    project_name = f"sat-{slug}"
+    output = slice_root / f"{run_slug}.txt"
+    log = REPORT / f"ghidra-{run_slug}.log"
+    project_name = f"sat-{run_slug}"
     library_paths = firmware_library_paths(rootfs)
 
     command = [
@@ -199,9 +211,6 @@ def main() -> int:
     env["XDG_CONFIG_HOME"] = str(ghidra_config)
     env["XDG_CACHE_HOME"] = str(ghidra_cache)
 
-    # Ghidra's launcher officially honors these application directory system
-    # properties. Keep settings/cache/temp under the assessment workspace and
-    # append rather than replace any operator-provided headless JVM options.
     existing_headless_opts = env.get("GHIDRA_HEADLESS_JAVA_OPTIONS", "").strip()
     local_opts = " ".join([
         f"-Dapplication.settingsdir={ghidra_config}",
@@ -211,9 +220,6 @@ def main() -> int:
     ])
     env["GHIDRA_HEADLESS_JAVA_OPTIONS"] = f"{existing_headless_opts} {local_opts}".strip()
 
-    # Overall wrapper budget includes auto-analysis plus multiple selected
-    # function decompilations. Keep it bounded but do not cut off legitimate
-    # per-function retries for large stripped vendor dispatchers.
     wrapper_timeout = args.timeout + (min(args.max_functions, 12) * args.decompile_timeout) + 180
     wrapper_timeout = min(wrapper_timeout, 5400)
 
@@ -239,6 +245,8 @@ def main() -> int:
     header = [
         "# SAT Ghidra invocation",
         f"binary: {binary.relative_to(rootfs)}",
+        f"binary_slug: {binary_slug}",
+        f"query_id: {query_id}",
         f"project: {project_root / project_name}",
         f"slice: {output}",
         f"needles: {', '.join(args.needle)}",
@@ -261,6 +269,7 @@ def main() -> int:
 
     print("[+] Focused Ghidra slice complete")
     print(f"    binary: {binary.relative_to(rootfs)}")
+    print(f"    query: {query_id}")
     print(f"    slice: {output.relative_to(ROOT)}")
     print(f"    log: {log.relative_to(ROOT)}")
     return 0
