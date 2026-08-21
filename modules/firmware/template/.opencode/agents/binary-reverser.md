@@ -17,15 +17,24 @@ Start from `reports/tool-output/firmware-binaries.json`, service/update correlat
 
 Determine the ELF architecture before disassembly. Failure of the host `objdump` to support the target architecture is **not** an analysis endpoint and must not be reported as if native static analysis were unavailable.
 
-When any of the following applies, escalate to the toolkit-managed `analyzeHeadless` before concluding that call flow is unresolved:
+When any of the following applies, escalate to toolkit-managed Ghidra before concluding that call flow is unresolved:
 - host `objdump` cannot disassemble the target architecture;
 - the binary is stripped and a concrete source-to-sink/auth/update/IPC hypothesis depends on callers, cross-references or control-flow ordering;
 - a High/Critical-impact candidate remains unresolved primarily because native call flow is missing;
 - lightweight strings/import evidence identifies both security gates and a sensitive sink but cannot establish their ordering or relationship.
 
-Use a project-local Ghidra project/cache under `work/ghidra/` and logs/artifacts under `reports/tool-output/` or `reports/subagents/`. Do not use `/tmp`. Preserve the exact Ghidra command, target language/architecture selected, analysis result, relevant function addresses/cross-references, and any failure reason.
+Prefer the bounded helper rather than improvising a broad full-program dump:
 
-If Ghidra itself cannot import/analyze/decompile the target, record the concrete failure. Only then may architecture/decompiler tooling be a coverage limitation. Do not substitute `host objdump lacks ARM support` for a Ghidra attempt when `analyzeHeadless` is available.
+```text
+python3 tools/firmware_ghidra_slice.py \
+  --binary <path-relative-to-primary-rootfs> \
+  --needle <security-relevant-string-or-symbol> \
+  [--needle <another-needle> ...]
+```
+
+Choose a small hypothesis-specific needle set, for example a handler name plus relevant gate/sink names such as `upgrade.cgi`, `XSRF`, `mtd_write`, `do_register`, or `_eval`. The helper imports exactly one ELF, runs `analyzeHeadless`, follows string/symbol references plus one caller layer, and writes the raw focused decompilation under `work/ghidra/slices/`; its invocation log is under `reports/tool-output/`. Read only the slice needed for the delegated hypothesis and summarize it rather than copying large decompiler output into reports.
+
+If the helper/Ghidra itself cannot import/analyze/decompile the target, record the concrete command, log path and failure. Only then may architecture/decompiler tooling be a coverage limitation. Do not substitute `host objdump lacks ARM support` for a Ghidra attempt when `analyzeHeadless` is available.
 
 Prioritize paths involving:
 - network/request/config/update/file inputs;
@@ -57,7 +66,7 @@ Write concise evidence to the requested `reports/subagents/` artifact. Include:
 - binary and exact hypothesis;
 - lightweight evidence used;
 - whether Ghidra was required and actually attempted;
-- Ghidra project/log path and relevant addresses/functions when used;
+- Ghidra slice/log path and relevant addresses/functions when used;
 - source/gate/sink chain established or exact missing link;
 - candidate disposition as CONFIRMED / LIKELY / NEEDS VALIDATION / FALSE POSITIVE;
 - remaining runtime/topology uncertainty separately from static control-flow uncertainty.
