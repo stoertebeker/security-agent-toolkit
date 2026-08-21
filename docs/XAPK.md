@@ -1,6 +1,6 @@
 # XAPK analysis
 
-The APK module accepts both normal `.apk` files and `.xapk` containers through the same `target/TARGET.toml` setting:
+The APK module accepts normal `.apk` files and `.xapk` containers through the same target setting:
 
 ```toml
 [apk]
@@ -9,43 +9,27 @@ path = "input/app.xapk"
 
 ## What XAPK is
 
-XAPK is a third-party distribution container rather than an Android platform package format. It is normally a ZIP archive containing some combination of:
+XAPK is a third-party distribution container, normally a ZIP archive containing one base APK, configuration/feature split APKs, optional OBB data and `manifest.json`. Android installs the base/splits as one application; splits can add code, resources and native libraries.
 
-- one base APK;
-- split APKs for ABI, language, display density, or dynamic features;
-- optional OBB expansion data;
-- `manifest.json` describing the package and its split APKs.
+## Safe static handling
 
-Android split APKs collectively form one installed application. The base APK normally contains the complete application component/permission manifest, while feature/config splits may add code, resources, or native libraries.
+Do not pass the original XAPK directly to JADX. `tools/apk_prepare.py` performs bounded extraction and rejects absolute/traversal/symlink members and excessive archive sizes/counts.
 
-## Security handling
+Preparation then:
 
-Do not pass the original XAPK directly to JADX. `tools/apk_prepare.py` performs its own bounded extraction first and rejects:
+1. parses `manifest.json` when present;
+2. identifies the base APK conservatively;
+3. inventories/hashes base, splits and OBBs;
+4. checks signatures/metadata;
+5. passes only extracted APK files to JADX;
+6. decodes base and splits with Apktool;
+7. safely expands ZIP-compatible OBBs;
+8. runs deterministic secret/material scanning.
 
-- absolute archive paths;
-- `..` path traversal;
-- symlink archive members;
-- excessive entry counts;
-- excessive total uncompressed size.
-
-The preparation step then:
-
-1. reads `manifest.json` when present;
-2. identifies the base APK (`split_apks[].id == "base"` when available, with conservative fallbacks);
-3. inventories all split APKs and OBB files;
-4. hashes the XAPK, base APK, splits, and OBB files;
-5. verifies base/split APK signatures and records metadata;
-6. passes the extracted APK files, not the XAPK container, to JADX;
-7. decodes the base and split APKs with Apktool;
-8. safely expands ZIP-compatible OBB files for static inspection;
-9. runs deterministic secret/material scanning across the prepared output.
-
-Relevant outputs include:
+Key outputs:
 
 ```text
-reports/tool-output/xapk.sha256
-reports/tool-output/xapk-inventory.json
-reports/tool-output/xapk-inventory.txt
+reports/tool-output/xapk-inventory.{json,txt}
 reports/tool-output/xapk-split-*-apksigner.txt
 reports/tool-output/xapk-split-*-aapt.txt
 reports/tool-output/xapk-split-*-apktool.txt
@@ -56,31 +40,26 @@ extracted/apktool/xapk-obb/
 
 ## Native split coverage
 
-ABI/configuration splits often contain the native `.so` libraries even when the base APK does not. The normal analysis flow therefore refreshes:
+ABI splits often contain all native `.so` libraries while the base APK contains none. `tools/apk_native_baseline.py` recursively scans the full decoded tree, including split libraries, and records ABI/ELF/JNI/import/redacted string leads. This is baseline coverage; deeper reversing/Ghidra remains selective.
+
+## Dynamic installation
+
+The toolkit-managed dynamic runtime never installs the original XAPK container directly. `tools/apk_dynamic.py install` reads the prepared `xapk-inventory.json` and installs the extracted base APK plus every recorded split APK together with:
 
 ```text
-reports/tool-output/native-baseline.json
-reports/tool-output/native-baseline.txt
+adb install-multiple
 ```
 
-via `tools/apk_native_baseline.py`. The tool recursively scans `extracted/apktool/`, so decoded ABI/split libraries are included automatically. It records architecture, selected ELF hardening properties, JNI exports, dangerous-import leads and redacted native secret-string leads.
+Before installation, dynamic setup selects and boots a compatible emulator runtime and compares the device's actual ABI list against prepared package native ABIs. For ARM-only native splits on an x86_64 host, the documented Android-11/API-30 x86_64 multi-ABI fallback may be used when `minSdk <= 30`; otherwise dynamic v1 reports the package/runtime combination unavailable.
 
-This is baseline coverage, not full native reverse engineering. `apk-native-reverser`/Ghidra should be used only for app-relevant, reachable or otherwise security-interesting libraries. Reports must distinguish baseline-only libraries from those that received deeper review.
+The base/split hashes and prepared inventory therefore remain the common identity boundary between static and dynamic phases.
 
 ## OBB limitation
 
-OBB expansion files are not guaranteed to be ZIP archives. ZIP-compatible OBBs are safely unpacked under `extracted/apktool/xapk-obb/` so normal local searches can inspect them. Opaque/non-ZIP OBB files are hashed and inventoried but are not automatically decoded. The final coverage/report must state this limitation rather than claiming full OBB coverage.
+ZIP-compatible OBBs are safely unpacked for static inspection. Opaque/non-ZIP OBB files remain hashed/inventoried. Dynamic v1 does not automatically place arbitrary OBB expansion content into emulator storage; this must be recorded as a runtime coverage limitation if the app depends on OBB data.
 
 ## Reporting expectations
 
-When `xapk-inventory.json` exists, the primary agent should record:
+When `xapk-inventory.json` exists, record base/split inventory, signing consistency, decode status, native split placement, deeper native review, dynamic base+split installation result, emulator ABI compatibility, OBB limitations and any degraded JADX/Apktool/runtime coverage.
 
-- base APK and split inventory;
-- signing consistency or mismatch observations;
-- which splits were decoded successfully;
-- native baseline counts including ABI/split placement;
-- which native libraries, if any, received deeper reversing;
-- OBB inventory and decode limitations;
-- any degraded JADX/Apktool coverage.
-
-Security findings still require evidence from the combined application, not merely the presence of a split or XAPK metadata.
+Findings require evidence from the combined application, not merely the presence of a split or XAPK metadata.
