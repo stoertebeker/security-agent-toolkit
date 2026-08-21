@@ -13,6 +13,15 @@ Independently challenge the delegated APK finding using local evidence only. Tre
 
 Check applicable source-to-sink flow, Android/API behavior, component reachability, permissions, user interaction, app/split ownership, decompiler uncertainty and realistic impact. Cross-check important JADX paths against Apktool/Smali when practical.
 
+When dynamic evidence is part of the finding, independently inspect the narrow relevant artifacts under `reports/dynamic/` and `reports/subagents/dynamic-review.md` rather than accepting the dynamic summary at face value. Distinguish:
+- a runtime API/event actually observed;
+- the feature/input conditions that were exercised;
+- whether attacker control or sensitive impact is established;
+- emulator/instrumentation artifacts or missing services;
+- `NOT_OBSERVED` from genuine evidence of absence.
+
+Frida hook events prove only that the hooked API executed with the redacted metadata recorded. PCAP/logcat/process maps similarly require local applicability before changing severity. Emulator-specific failures or software-emulation limitations are coverage issues, not target vulnerabilities.
+
 For credential/material findings, independently distinguish:
 - actually confidential/privileged reusable credentials/private material;
 - client-shipped request-signing material whose backend trust/confidentiality semantics remain unresolved;
