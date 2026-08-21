@@ -41,6 +41,28 @@ Record what was actually reviewed, what was intentionally skipped, and where cov
 - Ghidra used/skipped and why:
 - Native-review limitations:
 
+## Dynamic runtime coverage
+
+- Dynamic enabled:
+- Capability probe result: KVM / software / unavailable
+- Host environment: bare metal / VM / container and detected type
+- `/dev/kvm` / emulator acceleration result:
+- Emulator system image: API / tag / ABI
+- App package ABI compatibility:
+- Root requested / actually available:
+- APK/XAPK installation result:
+- Launch/UI path exercised:
+- Network PCAP captured / parsed:
+- Logcat captured:
+- App-data/process-state comparison available:
+- Frida allowed / actually used:
+- Active validation allowed / actions actually performed:
+- Static hypotheses exercised at runtime:
+- Credential/login/features not exercised:
+- Emulator-specific limitations (software speed, missing Google services, image mismatch, root/Frida):
+
+Do not record runtime behavior as absent merely because it was not observed. State whether the relevant feature was actually exercised.
+
 ## Security-area coverage
 
 | Area | Reviewed | Result / limitation |
@@ -53,7 +75,7 @@ Record what was actually reviewed, what was intentionally skipped, and where cov
 | WebView | | |
 | Storage/FileProvider | | |
 | Hard-coded secrets/credentials/material | | |
-| Native/JNI/dynamic loading | | Distinguish baseline from deep review. |
+| Native/JNI/dynamic loading | | Distinguish baseline, deep review and runtime load observation. |
 | Third-party SDK/dependencies | | |
 
 ## Public research coverage
@@ -68,4 +90,4 @@ Record what was actually reviewed, what was intentionally skipped, and where cov
 
 ## Explicit exclusions / follow-up
 
-List dynamic/server-side/partner/runtime questions that this run did not establish.
+List server-side/partner/runtime/UI questions this run did not establish, including dynamic features that could not be exercised.
