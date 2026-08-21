@@ -75,7 +75,7 @@ def validate_module(root: Path, module: str):
             if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"APK TARGET.example.toml must define secrets.{field} in range {lower}..{upper}")
 
         dynamic = target.get("dynamic", {}) if isinstance(target, dict) else {}
-        for field in ("enabled", "allow_software_emulation", "headless", "wipe_data_on_start", "grant_runtime_permissions", "request_root", "allow_frida", "allow_active_validation"):
+        for field in ("enabled", "allow_software_emulation", "allow_android11_multiabi_fallback", "headless", "wipe_data_on_start", "grant_runtime_permissions", "request_root", "allow_frida", "allow_active_validation"):
             if not isinstance(dynamic.get(field), bool): errors.append(f"APK TARGET.example.toml must define dynamic.{field} as boolean")
         if dynamic.get("backend") not in ("auto", "none"): errors.append("APK dynamic.backend must be auto or none")
         if dynamic.get("image_tag") not in ("auto", "default", "google_apis"): errors.append("APK dynamic.image_tag must be auto, default, or google_apis")
