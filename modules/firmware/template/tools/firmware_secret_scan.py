@@ -27,6 +27,7 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"), "HIGH"),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"), "MEDIUM"),
     ("url_embedded_credentials", re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:]{1,80}:[^\s/@]{1,160}@"), "HIGH"),
+    ("uci_credential_option", re.compile(r"(?i)\boption\s+(?:key|password|passwd|psk|wpa_passphrase)\s+[\"']([^\"']{3,240})[\"']"), "MEDIUM"),
     ("password_assignment", re.compile(r"(?i)\b(?:password|passwd|pwd|passphrase|psk|wpa_passphrase)\b\s*(?:=|:|\s+)\s*[\"']?([^\s\"';#]{3,200})"), "MEDIUM"),
     ("secret_assignment", re.compile(r"(?i)\b(?:client_secret|app_secret|api[_-]?key|auth[_-]?token|access[_-]?token|secret)\b\s*(?:=|:)\s*[\"']?([^\s\"';#]{6,240})"), "MEDIUM"),
     ("bearer_literal", re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._~+/-]{12,})"), "MEDIUM"),
@@ -81,11 +82,13 @@ def redact_context(line: str, value: str | None = None) -> str:
     text = line.strip().replace("\x00", "")
     if value:
         text = text.replace(value, f"<redacted:{len(value)}>")
-    # Catch values accidentally adjacent to common credential keys even when the
-    # regex captured only part of the assignment.
     text = re.sub(
         r"(?i)((?:password|passwd|pwd|passphrase|psk|secret|token|api[_-]?key)\s*(?:=|:)\s*)[^\s,;]+",
         r"\1<redacted>", text,
+    )
+    text = re.sub(
+        r"(?i)(option\s+(?:key|password|passwd|psk|wpa_passphrase)\s+)[\"'][^\"']+[\"']",
+        r"\1'<redacted>'", text,
     )
     return text[:MAX_CONTEXT]
 
@@ -115,7 +118,7 @@ def value_from_match(match: re.Match[str]) -> str:
     return match.group(0)
 
 
-def add_candidate(candidates: list[dict], sensitive: list[dict], *, rule: str, priority: str, path: Path, line: int | None, value: str, context: str, kind: str = "text") -> None:
+def add_candidate(candidates: list[dict], sensitive: list[dict], *, rule: str, priority: str, path: Path, line: int | None, value: str, context: str, kind: str = "text", sensitive_value: str | None = None) -> None:
     if not value:
         return
     candidates.append({
@@ -126,9 +129,12 @@ def add_candidate(candidates: list[dict], sensitive: list[dict], *, rule: str, p
         "fingerprint": fingerprint(value),
         "value_length": len(value),
         "kind": kind,
-        "context": redact_context(context, value),
+        "context": redact_context(context, sensitive_value or value),
     })
-    sensitive.append({"rule": rule, "path": rel(path), "line": line, "value": value})
+    if sensitive_value is not None:
+        sensitive.append({"rule": rule, "path": rel(path), "line": line, "value": sensitive_value})
+    else:
+        sensitive.append({"rule": rule, "path": rel(path), "line": line, "value": value})
 
 
 def scan_shadow(path: Path, candidates: list[dict], sensitive: list[dict]) -> None:
@@ -150,6 +156,23 @@ def scan_shadow(path: Path, candidates: list[dict], sensitive: list[dict]) -> No
         add_candidate(candidates, sensitive, rule="shadow_credential", priority="MEDIUM", path=path, line=number, value=credential, context=f"{username}:<shadow-credential>", kind="account")
 
 
+def scan_passwd(path: Path, candidates: list[dict], sensitive: list[dict]) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    for number, line in enumerate(lines, 1):
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(":")
+        if len(parts) < 2:
+            continue
+        username, credential = parts[0], parts[1]
+        if credential in {"", "x", "*", "!", "!!"}:
+            continue
+        add_candidate(candidates, sensitive, rule="passwd_credential", priority="HIGH", path=path, line=number, value=credential, context=f"{username}:<passwd-credential>", kind="account")
+
+
 def main() -> int:
     _, secrets_cfg = load_config()
     rootfs = load_rootfs()
@@ -159,14 +182,17 @@ def main() -> int:
     scanned = skipped_large_binary = 0
 
     shadow = rootfs / "etc/shadow"
+    passwd = rootfs / "etc/passwd"
     if shadow.is_file():
         scan_shadow(shadow, candidates, sensitive_values)
+    if passwd.is_file():
+        scan_passwd(passwd, candidates, sensitive_values)
 
     for current, _, filenames in os.walk(rootfs, followlinks=False):
         current_path = Path(current)
         for filename in filenames:
             path = current_path / filename
-            if path == shadow or path.is_symlink():
+            if path in {shadow, passwd} or path.is_symlink():
                 continue
             try:
                 st = path.lstat()
@@ -180,10 +206,11 @@ def main() -> int:
                     data = path.read_bytes()
                 except OSError:
                     data = b""
-                value = hashlib.sha256(data).hexdigest() if data else rel(path)
+                content_digest = hashlib.sha256(data).hexdigest() if data else rel(path)
                 add_candidate(
                     candidates, sensitive_values, rule="private_key_file", priority="HIGH",
-                    path=path, line=None, value=value, context=f"private-key-like file {filename}", kind="file",
+                    path=path, line=None, value=content_digest, context=f"private-key-like file {filename}", kind="file",
+                    sensitive_value=None,
                 )
                 continue
 
@@ -196,18 +223,24 @@ def main() -> int:
             except OSError:
                 continue
 
+            private_key_file_fingerprint = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
             for number, line in enumerate(text.splitlines(), 1):
                 for rule, pattern, priority in RULES:
                     for match in pattern.finditer(line):
-                        value = value_from_match(match)
-                        # Very low-entropy templating placeholders are not useful
-                        # secret candidates even when they match a generic key.
-                        if value.lower() in {"password", "passwd", "secret", "token", "changeme", "example", "null", "none"}:
+                        matched_value = value_from_match(match)
+                        if matched_value.lower() in {"password", "passwd", "secret", "token", "changeme", "example", "null", "none"}:
                             continue
-                        add_candidate(
-                            candidates, sensitive_values, rule=rule, priority=priority,
-                            path=path, line=number, value=value, context=line,
-                        )
+                        if rule == "private_key_header":
+                            add_candidate(
+                                candidates, sensitive_values, rule=rule, priority=priority,
+                                path=path, line=number, value=private_key_file_fingerprint,
+                                context=line, kind="file", sensitive_value=None,
+                            )
+                        else:
+                            add_candidate(
+                                candidates, sensitive_values, rule=rule, priority=priority,
+                                path=path, line=number, value=matched_value, context=line,
+                            )
 
     OUT.write_text(json.dumps(candidates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     counts: dict[str, int] = {}
