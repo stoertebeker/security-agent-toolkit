@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,16 +35,35 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+def fail(message: str) -> None:
+    raise SystemExit(f"[!] {message}")
+
+
+def lstat_mode(path: Path) -> int | None:
+    try:
+        return path.lstat().st_mode
+    except OSError:
+        return None
+
+
+def real_dir(path: Path) -> bool:
+    mode = lstat_mode(path)
+    return bool(mode is not None and stat.S_ISDIR(mode))
+
+
 def rootfs() -> Path:
     if not PREP.is_file():
-        raise SystemExit("[!] firmware preparation missing")
+        fail("firmware preparation missing")
     prep = json.loads(PREP.read_text())
     raw = prep.get("primary_rootfs") or prep.get("extraction_root")
     if not raw:
-        raise SystemExit("[!] no rootfs/extraction root")
-    path = ROOT / raw
-    if not path.is_dir():
-        raise SystemExit(f"[!] prepared path missing: {raw}")
+        fail("no rootfs/extraction root")
+    raw_path = Path(str(raw))
+    if raw_path.is_absolute() or ".." in raw_path.parts or raw_path.parts[:2] != ("work", "extracted"):
+        fail(f"unsafe prepared rootfs path: {raw}")
+    path = ROOT / raw_path
+    if not real_dir(path):
+        fail(f"prepared rootfs is not a real directory: {raw}")
     return path
 
 
@@ -57,9 +77,14 @@ def rel(path: Path) -> str:
 def strings(path: Path) -> str:
     try:
         proc = subprocess.run(
-            ["strings", "-a", "-n", "5", str(path)], cwd=ROOT, text=True,
-            errors="replace", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=60, check=False,
+            ["strings", "-a", "-n", "5", str(path)],
+            cwd=ROOT,
+            text=True,
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
         )
         return proc.stdout or ""
     except (OSError, subprocess.TimeoutExpired):
@@ -71,19 +96,36 @@ def main() -> int:
     fingerprints: dict[tuple[str, str, str], dict] = {}
     scanned = 0
 
-    for current, _, filenames in os.walk(base, followlinks=False):
+    for current, dirnames, filenames in os.walk(base, followlinks=False):
         current_path = Path(current)
+        dirnames[:] = [name for name in dirnames if real_dir(current_path / name)]
+
+        try:
+            current_rel = current_path.relative_to(base).as_posix()
+        except ValueError:
+            continue
+        if current_rel.startswith("lib/modules/"):
+            parts = Path(current_rel).parts
+            if len(parts) == 3 and re.search(r"\d+\.\d+", parts[2]):
+                version = parts[2]
+                key = ("linux-kernel", version, rel(current_path))
+                fingerprints[key] = {
+                    "component": "linux-kernel",
+                    "version": version,
+                    "path": rel(current_path),
+                    "evidence": "module-directory",
+                }
+
         for filename in filenames:
             path = current_path / filename
-            if path.is_symlink() or not path.is_file():
+            try:
+                st = path.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode) or st.st_size > 64 * 1024 * 1024:
                 continue
             lowered = filename.lower()
             if not any(hint in lowered for hint in NAME_HINTS):
-                continue
-            try:
-                if path.stat().st_size > 64 * 1024 * 1024:
-                    continue
-            except OSError:
                 continue
             text = strings(path)
             if not text:
@@ -100,19 +142,8 @@ def main() -> int:
                         "evidence": "static-string",
                     }
 
-    # Kernel/module directory names are useful anchors without running target code.
-    modules = base / "lib/modules"
-    if modules.is_dir():
-        for child in modules.iterdir():
-            if child.is_dir() and re.search(r"\d+\.\d+", child.name):
-                key = ("linux-kernel", child.name, rel(child))
-                fingerprints[key] = {
-                    "component": "linux-kernel", "version": child.name,
-                    "path": rel(child), "evidence": "module-directory",
-                }
-
     result = sorted(fingerprints.values(), key=lambda item: (item["component"], item["version"], item["path"]))
-    OUT.write_text(json.dumps({"schema_version": 1, "scanned_named_files": scanned, "fingerprints": result}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    OUT.write_text(json.dumps({"schema_version": 2, "scanned_named_files": scanned, "fingerprints": result}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     TXT.write_text("\n".join([
         "# Firmware component version fingerprints",
         f"named files scanned: {scanned}",
