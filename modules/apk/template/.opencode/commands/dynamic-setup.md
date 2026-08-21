@@ -49,7 +49,7 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
    python3 tools/apk_dynamic.py probe
    ```
 
-   The expected improvement is `/dev/kvm: rw`, `KVM usable by emulator: yes`, and `selected acceleration: kvm`. If modern `pct ... --devN` is unavailable on an older Proxmox release, do not invent syntax; refer the operator to the documented cgroup-v2 device-passthrough method for that release.
+   The expected improvement is `/dev/kvm: rw`, `KVM usable by emulator: yes`, and `selected acceleration: kvm`. If modern `pct ... --devN` is unavailable on an older Proxmox release, do not invent syntax; refer the operator to that release's documented cgroup-v2 device-passthrough mechanism.
 7. If the capability probe is unavailable because host architecture/ABI compatibility cannot be supported, preserve the exact reason. LXC/VM without KVM may use same-architecture x86_64 software emulation only when `allow_software_emulation=true`.
 8. Run `python3 tools/apk_dynamic.py setup`.
 9. Run the real boot capability test:
@@ -58,11 +58,22 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
 python3 tools/apk_dynamic_smoke.py
 ```
 
-This must boot the generated AVD through `sys.boot_completed=1`, inspect native CPU ABIs, Android native-bridge translation properties, and actual root-shell state, then shut it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
+This boots the generated AVD through `sys.boot_completed=1`, verifies device ABI/root properties, and shuts it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
 
-For `android11-x86_64-multiabi-translation`, do NOT require `ro.product.cpu.abilist` itself to contain `arm64-v8a`. That property may describe only the device's native x86/x86_64 ABIs while ARM compatibility is supplied through Android's native bridge. The smoke test must instead verify the native-bridge/ISA-translation properties. The later `adb install` / `adb install-multiple` step in `/dynamic` is the final package-level compatibility test.
+For `android11-x86_64-multiabi-translation`, image flavor matters in practice. Android Emulator release notes document ARM/ARM64 support for Android 11 x86/x86_64 images, but a current AOSP/default image revision may boot with only native x86/x86_64 ABIs and no active native bridge. The smoke script therefore performs one bounded automatic fallback when this exact condition occurs:
 
-Root handling is similarly evidence-based: if `adb shell id` already reports `uid=0`, treat root as available and do not require a successful extra `adb root` restart. If root cannot be established, continue non-root dynamic coverage and record Frida/root-only evidence as unavailable rather than failing the entire runtime.
-10. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility basis (`direct-device-abilist` or `android-native-bridge`), acceleration, boot success and actual root availability.
+```text
+API-30 default x86_64
+  -> boots but exposes no ARM compatibility
+  -> stop/remove that AVD
+  -> install/create API-30 google_apis x86_64
+  -> boot and verify again
+```
 
-The setup may download a managed Android system image into `$SAT_HOME/android-sdk`; all AVD/user/runtime state remains project-local under `work/android/`.
+The Google API-30 x86_64 image publishes ARM64/ARMv7 compatibility in its product ABI configuration. Do not weaken ABI validation merely because the first image booted. `reports/dynamic/setup-smoke.json` records whether this fallback was attempted and why.
+
+A successful smoke proves the runtime environment and image-level ABI compatibility only. For APK/XAPK packages with native code, the definitive package-level compatibility test is the later real `adb install` / `adb install-multiple` step during `/dynamic`; installation success is recorded in `reports/dynamic/abi-compatibility.json`.
+
+10. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility mode, acceleration, whether a google_apis fallback occurred, boot success and actual root availability.
+
+The setup may download managed Android system images into `$SAT_HOME/android-sdk`; all AVD/user/runtime state remains project-local under `work/android/`.
