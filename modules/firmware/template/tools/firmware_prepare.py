@@ -222,7 +222,12 @@ def rootfs_candidates(root: Path, limit: int) -> list[dict]:
             if previous is None or total > previous["score"]:
                 scores[candidate] = {"path": relative(candidate), "score": total, "markers": markers}
 
-    return sorted(scores.values(), key=lambda item: (-item["score"], item["path"]))[:limit]
+    ordered = sorted(scores.values(), key=lambda item: (-item["score"], item["path"]))
+    # Generic directory markers such as `lib` are useful only as a last-resort
+    # clue when no convincing rootfs exists. Once a strong candidate is present,
+    # suppress score-1/2/3 descendants so they do not look like peer root filesystems.
+    strong = [item for item in ordered if item["score"] >= 4]
+    return (strong if strong else ordered)[:limit]
 
 
 def write_text_summary(state: dict) -> None:
