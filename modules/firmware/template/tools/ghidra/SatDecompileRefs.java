@@ -22,59 +22,94 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class SatDecompileRefs extends GhidraScript {
     private static final int MAX_C_CHARS = 30000;
+
+    private static class Candidate {
+        final LinkedHashSet<String> reasons = new LinkedHashSet<>();
+        final Set<String> directNeedles = new HashSet<>();
+        int score = 0;
+        boolean direct = false;
+    }
 
     private static boolean containsIgnoreCase(String haystack, String needle) {
         return haystack != null && needle != null &&
             haystack.toLowerCase(Locale.ROOT).contains(needle.toLowerCase(Locale.ROOT));
     }
 
+    private static int directScore(String needle) {
+        // Specific handler/path/operation strings should outrank broad lifecycle
+        // terms such as "reboot" when max-functions truncates the slice.
+        int lengthBonus = Math.min(40, needle.length() * 2);
+        int syntaxBonus = (needle.contains(".") || needle.contains("_") || needle.contains("/")) ? 30 : 0;
+        return 100 + lengthBonus + syntaxBonus;
+    }
+
     private static void addReason(
-        Map<Function, LinkedHashSet<String>> selected,
+        Map<Function, Candidate> selected,
         Function function,
-        String reason
+        String reason,
+        int score,
+        String needle,
+        boolean direct
     ) {
         if (function == null) {
             return;
         }
-        selected.computeIfAbsent(function, key -> new LinkedHashSet<>()).add(reason);
+        Candidate candidate = selected.computeIfAbsent(function, key -> new Candidate());
+        if (candidate.reasons.add(reason)) {
+            candidate.score += score;
+        }
+        if (direct) {
+            candidate.direct = true;
+            if (needle != null) {
+                candidate.directNeedles.add(needle);
+            }
+        }
     }
 
     private void addReferencesToAddress(
-        Map<Function, LinkedHashSet<String>> selected,
+        Map<Function, Candidate> selected,
         ReferenceManager references,
         ghidra.program.model.address.Address address,
         FunctionManager functions,
+        String needle,
         String reason
     ) {
         ReferenceIterator iterator = references.getReferencesTo(address);
         while (iterator.hasNext() && !monitor.isCancelled()) {
             Reference reference = iterator.next();
             Function caller = functions.getFunctionContaining(reference.getFromAddress());
-            addReason(selected, caller, reason + " via " + reference.getFromAddress());
+            addReason(
+                selected, caller, reason + " via " + reference.getFromAddress(),
+                directScore(needle), needle, true
+            );
         }
     }
 
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length < 3) {
+        if (args.length < 4) {
             throw new IllegalArgumentException(
-                "Usage: SatDecompileRefs.java <output-file> <max-functions> <needle> [needle ...]"
+                "Usage: SatDecompileRefs.java <output-file> <max-functions> <decompile-timeout-seconds> <needle> [needle ...]"
             );
         }
 
         File output = new File(args[0]);
         int maxFunctions = Integer.parseInt(args[1]);
+        int decompileTimeout = Integer.parseInt(args[2]);
         List<String> needles = new ArrayList<>();
-        for (int i = 2; i < args.length; i++) {
+        for (int i = 3; i < args.length; i++) {
             if (!args[i].isBlank()) {
                 needles.add(args[i]);
             }
@@ -82,12 +117,15 @@ public class SatDecompileRefs extends GhidraScript {
         if (needles.isEmpty()) {
             throw new IllegalArgumentException("At least one non-empty needle is required");
         }
+        if (decompileTimeout < 1) {
+            throw new IllegalArgumentException("Decompiler timeout must be positive");
+        }
 
         Listing listing = currentProgram.getListing();
         FunctionManager functions = currentProgram.getFunctionManager();
         ReferenceManager references = currentProgram.getReferenceManager();
         SymbolTable symbols = currentProgram.getSymbolTable();
-        Map<Function, LinkedHashSet<String>> selected = new LinkedHashMap<>();
+        Map<Function, Candidate> selected = new LinkedHashMap<>();
 
         DataIterator dataIterator = listing.getDefinedData(true);
         while (dataIterator.hasNext() && !monitor.isCancelled()) {
@@ -96,7 +134,7 @@ public class SatDecompileRefs extends GhidraScript {
             for (String needle : needles) {
                 if (containsIgnoreCase(representation, needle)) {
                     addReferencesToAddress(
-                        selected, references, data.getAddress(), functions,
+                        selected, references, data.getAddress(), functions, needle,
                         "string/data match '" + needle + "' @ " + data.getAddress()
                     );
                 }
@@ -116,7 +154,8 @@ public class SatDecompileRefs extends GhidraScript {
                     Function caller = functions.getFunctionContaining(reference.getFromAddress());
                     addReason(
                         selected, caller,
-                        "symbol match '" + needle + "' -> " + name + " via " + reference.getFromAddress()
+                        "symbol match '" + needle + "' -> " + name + " via " + reference.getFromAddress(),
+                        directScore(needle), needle, true
                     );
                 }
             }
@@ -131,10 +170,19 @@ public class SatDecompileRefs extends GhidraScript {
                 Function caller = functions.getFunctionContaining(reference.getFromAddress());
                 addReason(
                     selected, caller,
-                    "direct caller of " + callee.getName() + " @ " + callee.getEntryPoint()
+                    "direct caller of " + callee.getName() + " @ " + callee.getEntryPoint(),
+                    15, null, false
                 );
             }
         }
+
+        List<Map.Entry<Function, Candidate>> ordered = new ArrayList<>(selected.entrySet());
+        ordered.sort(
+            Comparator
+                .<Map.Entry<Function, Candidate>>comparingInt(entry -> entry.getValue().directNeedles.size()).reversed()
+                .thenComparing(Comparator.comparingInt((Map.Entry<Function, Candidate> entry) -> entry.getValue().score).reversed())
+                .thenComparing(entry -> entry.getKey().getEntryPoint())
+        );
 
         File parent = output.getParentFile();
         if (parent != null) {
@@ -158,21 +206,25 @@ public class SatDecompileRefs extends GhidraScript {
             writer.println("compiler: " + currentProgram.getCompilerSpec().getCompilerSpecID());
             writer.println("needles: " + String.join(", ", needles));
             writer.println("matched functions before limit: " + selected.size());
+            writer.println("decompile timeout per function: " + decompileTimeout + " seconds");
             writer.println();
 
             int emitted = 0;
-            for (Map.Entry<Function, LinkedHashSet<String>> entry : selected.entrySet()) {
+            for (Map.Entry<Function, Candidate> entry : ordered) {
                 if (monitor.isCancelled() || emitted >= maxFunctions) {
                     break;
                 }
                 Function function = entry.getKey();
+                Candidate candidate = entry.getValue();
                 writer.println("## " + function.getName() + " @ " + function.getEntryPoint());
+                writer.println("priority score: " + candidate.score);
+                writer.println("direct needles: " + (candidate.directNeedles.isEmpty() ? "(caller-context only)" : String.join(", ", candidate.directNeedles)));
                 writer.println("reasons:");
-                for (String reason : entry.getValue()) {
+                for (String reason : candidate.reasons) {
                     writer.println("- " + reason);
                 }
 
-                DecompileResults results = decompiler.decompileFunction(function, 60, monitor);
+                DecompileResults results = decompiler.decompileFunction(function, decompileTimeout, monitor);
                 if (!results.decompileCompleted() || results.getDecompiledFunction() == null) {
                     writer.println("decompile: FAILED");
                     writer.println("error: " + results.getErrorMessage());
