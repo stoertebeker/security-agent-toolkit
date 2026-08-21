@@ -21,19 +21,18 @@ Commands:
       List all available security-analysis modules.
 
   platform
-      Detect the current operating system/platform and verify that it is supported.
+      Detect the current operating system/platform and verify support.
 
   doctor <module>
-      Check core plus required/optional module dependencies without installing.
+      Check core, required and optional module dependencies separately.
 
   install <module> [--with-optional]
-      Install OpenCode, the shared runtime, and required dependencies for one
-      module. --with-optional also installs module extras such as the managed
-      Android Emulator used by APK dynamic analysis.
+      Install OpenCode, shared runtime and required module dependencies.
+      --with-optional installs extras such as the managed Android Emulator used
+      by APK dynamic analysis.
 
   init <module> <destination>
-      Create a new local analysis workspace from the selected module template.
-      The destination MUST be outside this Git repository.
+      Create a local analysis workspace outside this Git repository.
 
   validate-module <module>
       Validate one module against the toolkit module contract.
@@ -42,7 +41,7 @@ Commands:
       Validate all modules.
 
   repo-guard
-      Check that the toolkit repository does not contain assessment/project data.
+      Check that the toolkit repository contains no assessment/project data.
 
 Examples:
   ./toolkit install apk
@@ -58,11 +57,10 @@ Supported platforms for static modules:
   Kali Rolling
   Parrot OS 7.x
 
-APK dynamic analysis can optionally use a toolkit-managed Android Emulator. It
-never assumes KVM is available: project setup probes bare metal/VM/container
-capabilities and selects accelerated, software-emulated, or unavailable mode.
-The toolkit does not reconfigure the host hypervisor or pass /dev/kvm into a
-container on the user's behalf.
+APK dynamic analysis optionally uses a toolkit-managed Android Emulator. Dynamic
+setup probes bare metal/VM/container, /dev/kvm, emulator acceleration and package
+ABI compatibility, then selects accelerated, software or unavailable mode. The
+toolkit never reconfigures the host hypervisor or container device passthrough.
 EOF
 }
 
@@ -103,10 +101,19 @@ case "$cmd" in
     sat_doctor_dependency opencode
     sat_doctor_dependency uv
     echo
-    echo "Module dependencies: $2"
+    echo "Required module dependencies: $2"
     while read -r dependency; do
+      [[ -n "$dependency" ]] && sat_doctor_dependency "$dependency"
+    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" required)
+    echo
+    echo "Optional module dependencies: $2"
+    optional_found=false
+    while read -r dependency; do
+      [[ -z "$dependency" ]] && continue
+      optional_found=true
       sat_doctor_dependency "$dependency"
-    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" all)
+    done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" optional)
+    $optional_found || echo "  (none)"
     ;;
 
   install)
@@ -125,7 +132,7 @@ case "$cmd" in
     echo
     sat_install_core
     while read -r dependency; do
-      sat_install_dependency "$dependency"
+      [[ -n "$dependency" ]] && sat_install_dependency "$dependency"
     done < <(python3 "$ROOT/lib/manifest.py" deps "$ROOT/modules/$2/module.toml" "$dep_mode")
     echo
     echo "Installation completed for module: $2"
