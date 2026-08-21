@@ -37,7 +37,7 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
    pct reboot <CTID>
    ```
 
-   Determine `<CONTAINER_KVM_GID>` inside the container with `getent group kvm`; ensure the analysis user belongs to that group (`sudo usermod -aG kvm <user>` followed by a new login/session). If `dev0` is already used, select the next free `devN` slot. Recent Proxmox VE exposes `dev[n]` specifically for passing a host device into a container.
+   Determine `<CONTAINER_KVM_GID>` inside the container with `getent group kvm`; ensure the analysis user belongs to that group (`sudo usermod -aG kvm <user>` followed by a new login/session). If `dev0` is already used, select the next free `devN` slot.
 
    After the host-side change, verify inside the container:
 
@@ -49,7 +49,7 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
    python3 tools/apk_dynamic.py probe
    ```
 
-   The expected improvement is `/dev/kvm: rw`, `KVM usable by emulator: yes`, and `selected acceleration: kvm`. If modern `pct ... --devN` is unavailable on an older Proxmox release, do not invent syntax; refer the operator to the documented cgroup-v2 device-passthrough method (`lxc.cgroup2.devices.allow` plus a bind-mounted `/dev/kvm`) for that release.
+   The expected improvement is `/dev/kvm: rw`, `KVM usable by emulator: yes`, and `selected acceleration: kvm`. If modern `pct ... --devN` is unavailable on an older Proxmox release, do not invent syntax; refer the operator to the documented cgroup-v2 device-passthrough method for that release.
 7. If the capability probe is unavailable because host architecture/ABI compatibility cannot be supported, preserve the exact reason. LXC/VM without KVM may use same-architecture x86_64 software emulation only when `allow_software_emulation=true`.
 8. Run `python3 tools/apk_dynamic.py setup`.
 9. Run the real boot capability test:
@@ -58,7 +58,11 @@ Prepare dynamic analysis only; do not repeat static analysis or perform target i
 python3 tools/apk_dynamic_smoke.py
 ```
 
-This must boot the generated AVD through `sys.boot_completed=1`, verify the device ABI list/root state, then shut it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
-10. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility mode, acceleration, boot success and actual root availability.
+This must boot the generated AVD through `sys.boot_completed=1`, inspect native CPU ABIs, Android native-bridge translation properties, and actual root-shell state, then shut it down. It catches runtime/container restrictions that a CPU/KVM probe alone cannot detect.
+
+For `android11-x86_64-multiabi-translation`, do NOT require `ro.product.cpu.abilist` itself to contain `arm64-v8a`. That property may describe only the device's native x86/x86_64 ABIs while ARM compatibility is supplied through Android's native bridge. The smoke test must instead verify the native-bridge/ISA-translation properties. The later `adb install` / `adb install-multiple` step in `/dynamic` is the final package-level compatibility test.
+
+Root handling is similarly evidence-based: if `adb shell id` already reports `uid=0`, treat root as available and do not require a successful extra `adb root` restart. If root cannot be established, continue non-root dynamic coverage and record Frida/root-only evidence as unavailable rather than failing the entire runtime.
+10. Read `reports/dynamic/setup.json`, `reports/dynamic/setup-smoke.json`, `reports/dynamic/device-info.json`, `reports/dynamic/abi-compatibility.json` when present, and `reports/dynamic/root-status.json`. Report selected Android API/tag/ABI, compatibility basis (`direct-device-abilist` or `android-native-bridge`), acceleration, boot success and actual root availability.
 
 The setup may download a managed Android system image into `$SAT_HOME/android-sdk`; all AVD/user/runtime state remains project-local under `work/android/`.
