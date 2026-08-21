@@ -14,12 +14,20 @@ Run dynamic analysis for the authorized Android package using only the toolkit-m
 - If `dynamic_available=false`, update `findings/dynamic.md` and `findings/coverage.md` with the exact limitation and stop. Do not pretend runtime coverage occurred.
 - Record the runtime ABI mode. Android-11 x86_64 multi-ABI fallback is API-30 compatibility coverage, not target-OS coverage.
 
-## 2. Build/start isolated emulator
+## 2. Reuse or prepare isolated emulator
 
-Run:
+If `reports/dynamic/setup-smoke.json` exists, reports `success=true`, and the referenced `reports/dynamic/setup.json` AVD still exists under project-local `work/android/avd/`, reuse that already boot-tested AVD. Do not recreate it merely because `/dynamic` follows `/dynamic-setup`.
+
+Otherwise run:
 
 ```text
 python3 tools/apk_dynamic.py setup
+python3 tools/apk_dynamic_smoke.py
+```
+
+The smoke test must pass before continuing. Then run:
+
+```text
 python3 tools/apk_dynamic.py start
 python3 tools/apk_dynamic.py install
 ```
