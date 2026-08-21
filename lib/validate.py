@@ -119,6 +119,55 @@ def validate_module(root: Path, module: str):
             if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"APK TARGET.example.toml must define dynamic.{field} in range {lower}..{upper}")
         if isinstance(dynamic.get("emulator_port"), int) and dynamic["emulator_port"] % 2: errors.append("APK dynamic.emulator_port must be even")
 
+    if module == "firmware":
+        firmware_required = (
+            "tools/firmware_prepare.py", "tools/firmware_baseline.py", "tools/firmware_component_fingerprint.py",
+            "tools/firmware_secret_scan.py", "tools/firmware_secret_group.py",
+            ".opencode/agents/firmware-explorer.md", ".opencode/agents/firmware-service-reviewer.md",
+            ".opencode/agents/firmware-update-reviewer.md", ".opencode/agents/firmware-secret-hunter.md",
+            ".opencode/agents/firmware-secret-review-worker.md", ".opencode/agents/binary-reverser.md",
+            ".opencode/agents/firmware-researcher.md", ".opencode/agents/firmware-web-worker.md",
+            ".opencode/agents/security-validator.md",
+            ".opencode/commands/prepare.md", ".opencode/commands/secrets.md", ".opencode/commands/services.md",
+            ".opencode/commands/binaries.md", ".opencode/commands/update.md", ".opencode/commands/research.md",
+            ".opencode/commands/summary.md",
+            "findings/inventory.md", "findings/attack-surface.md", "findings/secrets.md",
+            "findings/update-security.md", "findings/findings.md", "findings/coverage.md",
+            "findings/research.md", "findings/analysis-log.md",
+        )
+        for relative in firmware_required:
+            if not (template / relative).exists(): errors.append("Firmware template missing " + relative)
+        for relative in (
+            "tools/firmware_prepare.py", "tools/firmware_baseline.py", "tools/firmware_component_fingerprint.py",
+            "tools/firmware_secret_scan.py", "tools/firmware_secret_group.py",
+        ):
+            path = template / relative
+            if path.exists(): validate_python(path, errors)
+
+        orchestration = target.get("orchestration", {}) if isinstance(target, dict) else {}
+        for field, lower, upper in (("research_max_questions",1,20),("research_max_sources_per_question",1,20),("research_max_report_words",200,3000)):
+            value = orchestration.get(field)
+            if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"Firmware TARGET.example.toml must define orchestration.{field} in range {lower}..{upper}")
+
+        firmware_cfg = target.get("firmware", {}) if isinstance(target, dict) else {}
+        if not isinstance(firmware_cfg.get("path"), str) or not firmware_cfg.get("path"):
+            errors.append("Firmware TARGET.example.toml must define firmware.path")
+        for field, lower, upper in (("extract_processes",1,32),("extract_depth",1,30),("extract_timeout_seconds",60,14400),("max_rootfs_candidates",1,100)):
+            value = firmware_cfg.get(field)
+            if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"Firmware TARGET.example.toml must define firmware.{field} in range {lower}..{upper}")
+
+        analysis_cfg = target.get("analysis", {}) if isinstance(target, dict) else {}
+        for field in ("max_binary_deep_reviews", "max_service_deep_reviews", "max_update_deep_reviews"):
+            value = analysis_cfg.get(field)
+            if not isinstance(value, int) or not 0 <= value <= 50: errors.append(f"Firmware TARGET.example.toml must define analysis.{field} in range 0..50")
+
+        secret_cfg = target.get("secrets", {}) if isinstance(target, dict) else {}
+        for field in ("store_plaintext", "ai_plausibility_triage"):
+            if not isinstance(secret_cfg.get(field), bool): errors.append(f"Firmware TARGET.example.toml must define secrets.{field} as boolean")
+        for field, lower, upper in (("ai_triage_batch_size",5,50),("ai_representative_locations",1,5)):
+            value = secret_cfg.get(field)
+            if not isinstance(value, int) or not lower <= value <= upper: errors.append(f"Firmware TARGET.example.toml must define secrets.{field} in range {lower}..{upper}")
+
     if set(manifest.get("platforms", {}).get("supported", [])) != SUPPORTED: errors.append("platform set mismatch")
 
     catalog = tomllib.loads((root / "dependencies" / "catalog.toml").read_text())["dependencies"]
