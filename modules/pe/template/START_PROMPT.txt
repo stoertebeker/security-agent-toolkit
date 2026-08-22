@@ -1,0 +1,1 @@
+Run the authorized static PE malware analysis. Build the deterministic baseline first, prioritize a small number of behavior hypotheses, use focused Ghidra only where it can materially change the result, validate strong claims independently, and produce reports/MALWARE_ANALYSIS_REPORT.md. Never execute target-derived content.
