@@ -3,7 +3,7 @@ description: Coordinates group-first firmware credential and secret/material tri
 mode: subagent
 hidden: true
 temperature: 0.1
-steps: 10
+steps: 24
 permission:
   task:
     "*": deny
@@ -24,7 +24,7 @@ Read ONLY `reports/tool-output/firmware-secret-groups.json` as scanner-derived L
 
 Read `[orchestration].max_parallel_agents` and `[secrets]` from `target/TARGET.toml`. Respect `ai_triage_batch_size` (default 20) and the global concurrent-task ceiling (default 2). Partition semantic group IDs into bounded batches and delegate them to `firmware-secret-review-worker`. Leaf workers cannot spawn tasks.
 
-Every semantic group must receive a plausibility decision and final classification. Initial deterministic priority/classification hints are ordering aids only, not verdicts.
+Every semantic group must receive a plausibility decision and final classification. Initial deterministic priority/classification hints are ordering aids only, not verdicts. Do not claim complete AI group coverage unless every `group_id` from the deterministic groups document is present in the canonical review artifact.
 
 Distinguish:
 - real reusable confidential/privileged credentials;
@@ -44,5 +44,7 @@ Write one concise redacted report to `reports/subagents/firmware-secrets-review.
 - one row per group with plausibility/classification/confidence/evidence role;
 - security-relevant groups requiring primary integration;
 - limitations.
+
+End the report with a standalone `Completion: COMPLETE` marker only after every semantic group ID is represented. If the task cannot finish all batches, omit that marker and state the missing group IDs/count rather than allowing the primary to infer full coverage.
 
 The primary owns `findings/secrets.md`, findings/severity decisions, public research and final reporting. Return only a compact summary to the primary.
