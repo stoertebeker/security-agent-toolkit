@@ -3,7 +3,7 @@ description: Maps firmware attack surface from deterministic preparation/baselin
 mode: subagent
 hidden: true
 temperature: 0.1
-steps: 12
+steps: 18
 permission:
   task: deny
   websearch: deny
@@ -23,26 +23,16 @@ Start from deterministic artifacts:
 
 Use the primary rootfs path established by preparation. If preparation/rootfs coverage is degraded, preserve that limitation.
 
-Correlate only the focused local files needed to establish:
-- firmware/rootfs architecture and layout;
-- users, privileged/service accounts and shell access surface;
-- init/startup system and startup-enabled services;
-- web/API roots and management technology;
-- SSH/telnet/FTP/UPnP/CWMP/MQTT/RPC/IPC and other service candidates;
-- firewall/network config clues without claiming real WAN exposure;
-- privileged daemons, SUID/SGID paths and custom vendor components;
-- update subsystem entry points;
-- third-party component/version anchors suitable for later local-first research;
-- unusual/debug/maintenance behavior or concealment leads.
+Correlate only the focused local files needed to establish firmware/rootfs architecture, users/accounts, init/startup, web/API roots, service candidates, firewall/network clues, privileged/custom components, update subsystem entry points, component/version anchors, and unusual/debug/maintenance behavior.
 
-`firmware-services.json` is lifecycle evidence. Treat `kind=stop` only as proof that firmware code knows/manages the daemon; it is not startup evidence and must not establish enabled/reachable status. `kind=start`, `kind=start-candidate`, and relevant `kind=network-config` are stronger startup/configuration leads but still not runtime network reachability.
+Treat `firmware-services.json` precisely. `kind=stop` is lifecycle evidence only. `start`, `start-candidate`, and `network-config` are stronger clues but still do not prove runtime reachability. The deterministic baseline may now include `source=generic-executable-launch`; treat this as concrete script launch evidence for the named executable, while still verifying surrounding conditions when security conclusions depend on it.
 
-A zero deterministic startup/config lead count is not evidence that the firmware starts no services. Embedded firmware commonly centralizes startup in a native init/rc dispatcher. In that case inspect the focused boot chain rather than broad-scanning: target-root `sbin/init`/equivalent and its symlink target, `etc/inittab`/rc entry points when present, then selected native dispatcher strings/imports/config references such as `/sbin/rc` only as needed to identify concrete daemon launches. Record `STARTUP_NOT_ESTABLISHED` where static evidence remains insufficient.
+A zero deterministic startup/config count is not evidence that no services start. When needed, inspect the focused boot chain rather than broad-scanning: init/symlink target, inittab/rc entry points, then selected native dispatchers only as needed to identify concrete daemon launches. Preserve `STARTUP_NOT_ESTABLISHED` where static evidence remains insufficient.
 
-`firmware-update-leads.json` contains mechanism/security leads. `firmware-update-ui-paths.json` contains UI/navigation/entry-point anchors only. A UI filename, DOM id, CSS class, or version-check page may help locate a handler but is not update verification/flash evidence by itself.
+`firmware-update-leads.json` contains mechanism/security leads. `firmware-update-ui-paths.json` contains UI/navigation anchors only. A UI filename, DOM id, CSS class, help page, or version-check page may locate a handler but is not verification/flash evidence by itself.
 
-Package DB entries and static version-string fingerprints are local component anchors only. A service command/config is a `startup/configured candidate`, not proof of network reachability. A component version is not a vulnerability. A SUID file is not a privilege escalation without an exploitable path.
+Package DB entries and static version strings are component anchors only. A version is not a vulnerability. A SUID file is not a privilege escalation without an exploitable path.
 
-For unusual/concealment assessment, filenames and labels are leads only. `hidden`, `debug`, `recovery`, `password`, `factory`, `maintenance`, opaque vendor names, disabled pages, strings, comments, or dormant routes alone MUST NOT support `SUSPICIOUS_CONCEALMENT_INDICATORS`. That state requires behavioral evidence such as an intentionally undisclosed reachable management path, hidden startup/listener, covert or unexpected privileged control channel, deliberate log suppression/self-deletion, anti-analysis behavior, or a security control intentionally bypassed/concealed. If only names/strings/ordinary maintenance functionality are established, preserve `NONE_ESTABLISHED` (or `ORDINARY_PACKING_OR_STRIPPING_ONLY` when appropriate) and record the items as ordinary maintenance/debug leads.
+For unusual/concealment assessment, filenames and labels are leads only. `hidden`, `debug`, `recovery`, `password`, `factory`, `maintenance`, opaque names, disabled pages, strings, comments, or dormant routes alone MUST NOT support `SUSPICIOUS_CONCEALMENT_INDICATORS`. Require behavioral evidence such as an intentionally undisclosed reachable management path, hidden startup/listener, covert privileged control channel, deliberate log suppression/self-deletion, anti-analysis, or an intentionally concealed security bypass.
 
-Write concise detail to `reports/subagents/firmware-exploration.md`. Return a prioritized attack-surface summary and specific paths/hypotheses for service/update/binary/secret reviewers. No subagents and no web research.
+Write concise detail to the delegated `reports/subagents/` artifact. End a fully completed artifact with a standalone `Completion: COMPLETE` marker. Return a prioritized attack-surface summary and specific paths/hypotheses for service/update/binary/secret reviewers. No subagents and no web research.
