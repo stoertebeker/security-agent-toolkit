@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "pe-security",
+  "subagent_depth": 1,
+  "snapshot": false,
+  "compaction": {"auto": true, "prune": true},
+  "permission": {"external_directory": "deny", "websearch": "deny", "webfetch": "deny"}
+}
