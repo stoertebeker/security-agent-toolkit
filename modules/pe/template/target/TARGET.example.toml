@@ -1,0 +1,19 @@
+[engagement]
+name="PE malware analysis"
+authorized=false
+
+[orchestration]
+max_parallel_agents=2
+research_max_questions=4
+research_max_sources_per_question=5
+research_max_report_words=800
+
+[target]
+path="input/sample.exe"
+allow_public_hash_research=false
+
+[analysis]
+max_binary_hypotheses=6
+max_ghidra_slices_per_hypothesis=3
+max_ghidra_slices_per_assessment=12
+max_strings=20000
