@@ -52,7 +52,7 @@ The LLM workflow must use only `firmware-secret-groups.json`, never the raw cand
 
 ## Public research
 
-Research is normally last-mile, with one deliberate exception: when local evidence establishes an exact vendor/product/hardware revision/firmware build, `orchestration.advisory_scout=true` permits one early `RQ-ADVISORY-SCOUT` to ask authoritative vendor/CVE sources whether known High/Critical advisories apply and, if disclosed, which feature/parameter is affected. Advisory results are hypothesis seeds only. Every applicable seed must be checked against the local target and either investigated or explicitly rejected/deferred with evidence. The scout counts against `research_max_questions`.
+Research is normally last-mile, with one deliberate exception. When `orchestration.advisory_scout=true`, attempt one early `RQ-ADVISORY-SCOUT` after local product identity has been gathered. Supply the best vendor/product/hardware revision/firmware version/build facts available; if they are insufficient, the scout should return `NEEDS_LOCAL_CONTEXT` rather than guess. Otherwise ask authoritative vendor/CVE sources whether known High/Critical advisories apply and, if disclosed, which feature/parameter is affected. Advisory results are hypothesis seeds only. Every applicable seed must be checked against the local target and either investigated or explicitly rejected/deferred with evidence. The scout counts against `research_max_questions`.
 
 All other research remains narrow and local-first. Never send credentials, private target data or source blocks to public search.
 
