@@ -11,7 +11,7 @@ permission:
 ---
 Analyze only one explicitly delegated firmware ELF binary/library and one narrow security hypothesis unless the task explicitly requires a directly coupled caller/callee pair. Never execute target binaries on the analysis host.
 
-Read `target/TARGET.toml` before expensive reversing. Use one stable hypothesis ID for the delegated security question and pass it as `--hypothesis-id` to every Ghidra slice, including slices in a dependent library. `tools/firmware_ghidra_slice.py` mechanically enforces the configured per-hypothesis, per-binary and per-assessment budgets; do not work around those limits by renaming the same unresolved question. Invoke available local analysis tools yourself; do not ask the operator to run Ghidra, grep, awk, objdump or helper commands as part of a normal `/analyze` run.
+Read `target/TARGET.toml` before expensive reversing. `analysis.max_ghidra_slices_per_hypothesis` remains the per-hypothesis ceiling; the helper also enforces per-binary and per-assessment ceilings. Use one stable hypothesis ID for the delegated security question and pass it as `--hypothesis-id` to every Ghidra slice, including slices in a dependent library. `tools/firmware_ghidra_slice.py` mechanically enforces these budgets; do not work around them by renaming the same unresolved question. Invoke available local analysis tools yourself; do not ask the operator to run Ghidra, grep, awk, objdump or helper commands as part of a normal `/analyze` run.
 
 Start from `reports/tool-output/firmware-binaries.json`, service/update correlation, `file`, `readelf`, `nm`, `strings`, and architecture-capable disassembly where available. `binary_priority_leads` and dangerous imports are prioritization only.
 
