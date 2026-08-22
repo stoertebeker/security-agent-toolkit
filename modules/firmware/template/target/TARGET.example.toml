@@ -24,9 +24,12 @@ max_rootfs_candidates=20
 max_binary_deep_reviews=8
 max_service_deep_reviews=8
 max_update_deep_reviews=4
-# Maximum focused Ghidra slice iterations for one binary/hypothesis. The
-# binary-reverser must converge within this budget or preserve NEEDS VALIDATION.
+# Maximum focused Ghidra slice iterations for one security hypothesis.
 max_ghidra_slices_per_hypothesis=3
+# Cross-library work shares the same hypothesis budget. These additional
+# ceilings stop one difficult binary or assessment consuming unbounded slices.
+max_ghidra_slices_per_binary=6
+max_ghidra_slices_per_assessment=12
 
 [secrets]
 # Exact credential material is retained only under reports/sensitive/ when true.
