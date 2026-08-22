@@ -4,7 +4,7 @@ agent: firmware-security
 ---
 Run the complete authorized firmware security assessment for the target configured in `target/TARGET.toml`.
 
-1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[analysis]`, and `[secrets]` first. Refuse if `engagement.authorized` is not true. Respect `orchestration.max_parallel_agents`; never exceed it. The Ghidra helper mechanically enforces the configured per-hypothesis, per-binary, and per-assessment slice ceilings; use stable hypothesis IDs and never bypass those budgets by renaming the same unresolved question.
+1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[analysis]`, and `[secrets]` first. Refuse if `engagement.authorized` is not true. Respect `orchestration.max_parallel_agents`; never exceed it. `analysis.max_ghidra_slices_per_hypothesis` remains the per-hypothesis ceiling; the Ghidra helper also mechanically enforces per-binary and per-assessment slice ceilings. Use stable hypothesis IDs and never bypass those budgets by renaming the same unresolved question.
 2. Reuse fresh deterministic artifacts for the current firmware hash. Refresh stale/missing stages in this order. `firmware_baseline.py` also records a tool-code provenance hash; a missing/mismatched baseline provenance is stale even when the firmware hash is unchanged:
    - `python3 tools/firmware_prepare.py`
    - `python3 tools/firmware_baseline.py`
