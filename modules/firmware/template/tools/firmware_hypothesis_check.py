@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -39,6 +40,14 @@ def main() -> int:
         except Exception as exc:
             errors.append(f"invalid web surface: {exc}")
             surface = {}
+        tool_path = ROOT / "tools" / "firmware_web_surface.py"
+        if tool_path.is_file():
+            current_tool_hash = hashlib.sha256(tool_path.read_bytes()).hexdigest()
+            recorded_tool_hash = str(surface.get("tool_sha256") or "")
+            if recorded_tool_hash != current_tool_hash:
+                errors.append("firmware web-surface artifact is stale for current tool code; refresh firmware_baseline.py")
+            else:
+                checks.append("web-surface-provenance")
         cap = int(cfg.get("analysis", {}).get("max_web_hypotheses", 6))
         leads = (surface.get("leads") or [])[:cap]
         coverage = read_many([
