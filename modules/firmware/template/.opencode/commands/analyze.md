@@ -21,6 +21,9 @@ Run the complete authorized firmware security assessment for `target/TARGET.toml
 10. All non-scout public research is local-first and last-mile. Public claims never replace local applicability.
 11. Maintain durable records under `findings/` and detailed evidence under `reports/subagents/`/`reports/research/`.
 12. Create `reports/STATIC_SECURITY_REPORT.md`. Separate highest confirmed severity from unresolved candidate impact/status; do not assign severity solely from hypothetical impact.
-13. Run `python3 tools/firmware_postrun_check.py`. Make at most one bounded repair pass. Do not publish complete coverage while the checker fails.
+13. Run both invariant layers:
+   - `python3 tools/firmware_postrun_check.py`
+   - `python3 tools/firmware_hypothesis_check.py`
+   Make at most one bounded repair pass. Do not publish complete coverage while either checker fails.
 
 Do not ask the operator to run local analysis commands during a normal `/analyze` assessment. The agents invoke deterministic tools, Ghidra helpers and searches themselves. Never execute target firmware binaries on the host.
