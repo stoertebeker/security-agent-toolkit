@@ -19,7 +19,7 @@ Start from `reports/tool-output/firmware-binaries.json`, service/update correlat
 
 Determine the ELF architecture before disassembly. Failure of the host `objdump` to support the target architecture is not an analysis endpoint.
 
-Escalate to toolkit-managed Ghidra when:
+Escalate to toolkit-managed Ghidra via `analyzeHeadless` when:
 - host `objdump` cannot disassemble the target architecture;
 - the binary is stripped and a concrete source-to-sink/auth/update/IPC hypothesis depends on callers, cross-references or control-flow ordering;
 - a High/Critical-impact candidate remains unresolved primarily because native call flow is missing;
