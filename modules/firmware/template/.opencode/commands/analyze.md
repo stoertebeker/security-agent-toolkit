@@ -4,7 +4,7 @@ agent: firmware-security
 ---
 Run the complete authorized firmware security assessment for the target configured in `target/TARGET.toml`.
 
-1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[identity]`, `[analysis]`, and `[secrets]`. Refuse unless authorized. Respect `max_parallel_agents`. Ghidra budgets are mechanically enforced; never rename the same unresolved question to reset them.
+1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[identity]`, `[analysis]`, and `[secrets]`. Refuse unless authorized. Respect `max_parallel_agents`. `analysis.max_ghidra_slices_per_hypothesis` remains the per-question ceiling and all Ghidra budgets are mechanically enforced; never rename the same unresolved question to reset them.
 2. Refresh/reuse deterministic stages for the current image in this order:
    - `python3 tools/firmware_prepare.py`
    - `python3 tools/firmware_baseline.py` (also creates `firmware-identity.*` and `firmware-web-surface.*`)
@@ -18,7 +18,7 @@ Run the complete authorized firmware security assessment for the target configur
 6. Delegate `firmware-explorer` and `firmware-secret-hunter` early. A delegated artifact is complete only with `Completion: COMPLETE`; one bounded resume/retry is allowed. Secret coverage may be called complete only if every deterministic group ID is present in `firmware-secrets-review.md`.
 7. Before expensive deep-review selection, explicitly disposition the top `analysis.max_web_hypotheses` entries from `firmware-web-surface.json`. Do not let the first interesting route crowd out similarly risky web surfaces.
 8. Select only the highest-value unresolved service/web/auth/IPC, update and native hypotheses. Establish source -> processing/validation -> sensitive sink -> auth/reachability/privilege -> realistic impact. Give native reviewers one stable hypothesis ID and use Ghidra only where control flow can change the conclusion.
-9. If a decisive native symbol remains external/thunk-only, use `tools/firmware_symbol_owner.py`; cross-library work keeps the same hypothesis budget. Stop with `NEEDS VALIDATION` when the remaining gap is runtime/topology/hardware/backend evidence or broad vendor archaeology.
+9. Native escalation is **Ghidra-backed** through toolkit-managed `analyzeHeadless`; a host `objdump` architecture limitation is not an analysis endpoint. If a decisive symbol remains external/thunk-only, use `tools/firmware_symbol_owner.py`; cross-library work keeps the same hypothesis budget. Stop with `NEEDS VALIDATION` when the remaining gap is runtime/topology/hardware/backend evidence or broad vendor archaeology.
 10. Important High/Critical candidates require `security-validator`. Keep CVE-label uncertainty separate from locally established vulnerability behavior.
 11. All non-scout research remains last-mile and bounded. Never send private target data, target hashes, credentials, keys or source blocks to public research.
 12. Maintain all durable `findings/` records and create `reports/STATIC_SECURITY_REPORT.md`. Separate confirmed severity from unresolved potential impact/status; do not call an unproven primitive a severity finding.
