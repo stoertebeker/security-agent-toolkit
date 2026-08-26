@@ -11,6 +11,7 @@ Run the complete authorized firmware security assessment for the target configur
    - `python3 tools/firmware_component_fingerprint.py`
    - `python3 tools/firmware_secret_scan.py`
    - `python3 tools/firmware_secret_group.py`
+   Treat the baseline stage as stale when `firmware-identity.json` or `firmware-web-surface.json` is missing, even when the firmware SHA has not changed.
 3. Treat deterministic outputs as leads/coverage, not findings. `kind=stop` is not startup proof; UI pages are not update-mechanism proof; versions/imports/strings/keys are not vulnerabilities.
 4. If `orchestration.advisory_scout=true`, run exactly one early `RQ-ADVISORY-SCOUT` through `firmware-researcher`. Supply `reports/tool-output/firmware-identity.json` as the identity contract. If `advisory_ready=true`, do not describe model/build as unavailable. If identity is partial, preserve the exact missing/conflicting field.
 5. Every advisory seed with a disclosed feature/endpoint/parameter/function must receive a **local behavior disposition independently of CVE applicability**. If that feature/parameter exists locally, create a stable local hypothesis and investigate it even when the CVE label is `DEFERRED_CVE_IDENTITY`. Record:
