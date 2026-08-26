@@ -17,11 +17,23 @@ Correlate only focused local files needed to establish architecture, accounts, i
 
 ## Web-surface coverage
 
-Explicitly disposition the top `analysis.max_web_hypotheses` web leads as `INVESTIGATE` or `DEPRIORITIZE`, with a short local-evidence reason and the stable `WS-...` ID. For each `INVESTIGATE` lead, inspect `firmware-web-native-bridge.json` and record the strongest relevant `WB-...` candidate(s), exact risky request field(s), route/page token(s), and candidate ELF(s). A bridge is prioritization evidence only, but an exact risky field plus route co-occurring in a native component is stronger than a page-name lead alone.
+For each of the top `analysis.max_web_hypotheses` web leads, write exactly one machine-auditable line:
 
-Preserve concrete input names in hypotheses. Prefer `field X from route Y -> candidate binary Z` over “review HTTPD.” If a bridge points to a second daemon or IPC consumer, return that as part of the same end-to-end web hypothesis rather than as an unrelated service observation.
+```text
+Web disposition: WS-... -> INVESTIGATE|DEPRIORITIZE; reason=<brief local-evidence reason>
+```
 
-Client-side validation is bypassable but does not prove missing server-side validation. Filenames, parameter names and string co-occurrence are not findings.
+For every `INVESTIGATE` lead, inspect `firmware-web-native-bridge.json`. If it has a relevant trace-ready bridge, write:
+
+```text
+Bridge disposition: WB-... -> TRACE|DEPRIORITIZE; local-hypothesis=<stable-id-or-none>; reason=<brief reason>
+```
+
+A `TRACE` must preserve the exact risky request field(s), route/page token(s), candidate ELF, and one stable local hypothesis. Prefer `field X from route Y -> candidate binary Z` over “review HTTPD.” If the strongest deterministic bridge is deprioritized, state why. If no trace-ready bridge exists, record that in prose and return the best local follow-up.
+
+A bridge is prioritization evidence only. Client-side validation is bypassable but does not prove missing server-side validation; filenames, parameter names and string co-occurrence are not findings.
+
+If a bridge points to a second daemon or IPC consumer, return that as part of the same end-to-end web hypothesis rather than as an unrelated service observation.
 
 Treat service lifecycle evidence precisely: `stop` is not startup proof; `start`/`start-candidate`/`network-config` are stronger clues but do not prove runtime reachability. `source=generic-executable-launch` is concrete script-launch evidence subject to surrounding conditions. If startup remains unclear, inspect the focused boot chain rather than broad-scanning.
 
