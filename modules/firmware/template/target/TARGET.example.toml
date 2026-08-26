@@ -14,12 +14,26 @@ research_max_sources_per_question=5
 research_max_report_words=900
 
 [firmware]
+# Preserve the vendor filename when practical; it is useful identity evidence.
 path="input/firmware.bin"
 # Recursive unblob extraction controls. Extraction stays project-local.
 extract_processes=4
 extract_depth=10
 extract_timeout_seconds=3600
 max_rootfs_candidates=20
+
+[identity]
+# Optional evidence overrides for unusual/proprietary images. Leave blank during
+# normal hands-off runs; deterministic identity extraction should populate these
+# facts from filename, image strings and the extracted rootfs when possible.
+source_filename=""
+vendor=""
+product=""
+hardware_revision=""
+region=""
+firmware_version=""
+build=""
+release=""
 
 [analysis]
 # Ceilings for expensive focused reviews; these are not target counts.
