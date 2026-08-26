@@ -3,6 +3,7 @@ from firmware_identity import main as identity_main
 from firmware_baseline_core import main as baseline_main
 from firmware_baseline_enrich import main as enrich_main
 from firmware_web_surface import main as web_surface_main
+from firmware_web_native_bridge import main as web_native_bridge_main
 
 if __name__ == "__main__":
     rc = identity_main()
@@ -14,4 +15,7 @@ if __name__ == "__main__":
     rc = enrich_main()
     if rc:
         raise SystemExit(rc)
-    raise SystemExit(web_surface_main())
+    rc = web_surface_main()
+    if rc:
+        raise SystemExit(rc)
+    raise SystemExit(web_native_bridge_main())
