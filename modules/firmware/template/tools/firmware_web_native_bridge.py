@@ -192,6 +192,10 @@ def main() -> int:
                 if len(trace_needles) >= 6:
                     break
             bridge_id = "WB-" + hashlib.sha256(f"{lead_id}\0{meta['path']}".encode()).hexdigest()[:10]
+            # HTTP-facing binaries often contain both route and field. A privileged
+            # downstream IPC consumer may contain only the exact field plus a
+            # sensitive operation, so that combination is also trace-worthy.
+            trace_ready = bool(risky_fields and (routes or sensitive))
             bridges.append({
                 "bridge_id": bridge_id,
                 "lead_id": lead_id,
@@ -203,7 +207,7 @@ def main() -> int:
                 "route_tokens": routes,
                 "sensitive_imports": sensitive,
                 "trace_needles": trace_needles,
-                "trace_ready": bool(risky_fields and routes),
+                "trace_ready": trace_ready,
                 "evidence_role": "native-correlation-prioritization-only",
             })
         bridges.sort(key=lambda item: (-int(item["score"]), str(item["binary"])))
