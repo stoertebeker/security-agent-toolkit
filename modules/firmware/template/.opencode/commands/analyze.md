@@ -2,28 +2,26 @@
 description: Run the complete evidence-first firmware security assessment
 agent: firmware-security
 ---
-Run the complete authorized firmware security assessment for `target/TARGET.toml`.
+Run the complete authorized firmware security assessment for the target configured in `target/TARGET.toml`.
 
-1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[analysis]`, and `[secrets]`. Refuse unless authorized. Respect `max_parallel_agents`. `analysis.max_ghidra_slices_per_hypothesis` remains the per-hypothesis ceiling; helper-enforced per-binary/per-assessment ceilings also apply.
-2. Refresh stale deterministic stages for the current firmware/tool hashes:
+1. Read `[engagement]`, `[orchestration]`, `[firmware]`, `[identity]`, `[analysis]`, and `[secrets]`. Refuse unless authorized. Respect `max_parallel_agents`. Ghidra budgets are mechanically enforced; never rename the same unresolved question to reset them.
+2. Refresh/reuse deterministic stages for the current image in this order:
    - `python3 tools/firmware_prepare.py`
-   - `python3 tools/firmware_baseline.py` (this also creates `firmware-web-surface.*`)
+   - `python3 tools/firmware_baseline.py` (also creates `firmware-identity.*` and `firmware-web-surface.*`)
    - `python3 tools/firmware_component_fingerprint.py`
    - `python3 tools/firmware_secret_scan.py`
    - `python3 tools/firmware_secret_group.py`
-3. Delegate `firmware-explorer` and `firmware-secret-hunter` within the concurrency ceiling. A delegated artifact is complete only with `Completion: COMPLETE`; allow at most one bounded retry after a step limit/incomplete artifact.
-4. Before deep-review selection, require explicit `INVESTIGATE`/`DEPRIORITIZE` dispositions for the top `analysis.max_web_hypotheses` ranked entries in `reports/tool-output/firmware-web-surface.json`. Preserve their `WS-...` IDs in the explorer/service evidence. Client-side validation and risky parameter names are leads, not findings.
-5. If `orchestration.advisory_scout=true`, spend exactly one research question on `RQ-ADVISORY-SCOUT` after local product identity has been attempted. Supply the best locally established vendor/product/hardware revision/firmware version/build facts. If identity is insufficient, the researcher must still write the canonical scout artifact with `NEEDS_LOCAL_CONTEXT`. Otherwise ask authoritative vendor/CVE sources for applicable High/Critical advisories and any disclosed vulnerable feature/parameter. Treat matches only as `HYPOTHESIS_SEED`; locally investigate or explicitly reject/defer every applicable seed. This scout is the sole exception to normal last-mile research.
-6. Select only the highest-value unresolved service/web/auth/IPC, update and native hypotheses. Use deterministic mechanism evidence rather than UI names alone. Do not let the first interesting path crowd out higher-ranked web-surface/advisory seeds.
-7. For missing startup evidence, reconstruct the focused init/rc/vendor dispatch chain. `kind=stop` never proves startup. Do not infer WAN exposure from static configuration alone.
-8. Native escalation is mandatory when decisive static control flow is missing and could materially change a candidate. A host `objdump` architecture limitation is not an endpoint while toolkit-managed `analyzeHeadless` is available. Use a Ghidra-backed `binary-reverser`, stable hypothesis IDs, cross-library symbol-owner resolution when needed, and hard budgets. If Ghidra fails, record the exact artifact/log reason.
-9. Important High/Critical candidates and applicable High/Critical advisory seeds require independent `security-validator` challenge before final disposition.
-10. All non-scout public research is local-first and last-mile. Public claims never replace local applicability.
-11. Maintain durable records under `findings/` and detailed evidence under `reports/subagents/`/`reports/research/`.
-12. Create `reports/STATIC_SECURITY_REPORT.md`. Separate highest confirmed severity from unresolved candidate impact/status; do not assign severity solely from hypothetical impact.
-13. Run both invariant layers:
-   - `python3 tools/firmware_postrun_check.py`
-   - `python3 tools/firmware_hypothesis_check.py`
-   Make at most one bounded repair pass. Do not publish complete coverage while either checker fails.
+3. Treat deterministic outputs as leads/coverage, not findings. `kind=stop` is not startup proof; UI pages are not update-mechanism proof; versions/imports/strings/keys are not vulnerabilities.
+4. If `orchestration.advisory_scout=true`, run exactly one early `RQ-ADVISORY-SCOUT` through `firmware-researcher`. Supply `reports/tool-output/firmware-identity.json` as the identity contract. If `advisory_ready=true`, do not describe model/build as unavailable. If identity is partial, preserve the exact missing/conflicting field.
+5. Every advisory seed with a disclosed feature/endpoint/parameter/function must receive a **local behavior disposition independently of CVE applicability**. If that feature/parameter exists locally, create a stable local hypothesis and investigate it even when the CVE label is `DEFERRED_CVE_IDENTITY`. Record:
+   `Seed disposition: CVE-YYYY-NNNN -> INVESTIGATED|REJECTED|DEFERRED_CVE_IDENTITY; local-hypothesis=<id-or-none>; reason=<brief evidence>`.
+6. Delegate `firmware-explorer` and `firmware-secret-hunter` early. A delegated artifact is complete only with `Completion: COMPLETE`; one bounded resume/retry is allowed. Secret coverage may be called complete only if every deterministic group ID is present in `firmware-secrets-review.md`.
+7. Before expensive deep-review selection, explicitly disposition the top `analysis.max_web_hypotheses` entries from `firmware-web-surface.json`. Do not let the first interesting route crowd out similarly risky web surfaces.
+8. Select only the highest-value unresolved service/web/auth/IPC, update and native hypotheses. Establish source -> processing/validation -> sensitive sink -> auth/reachability/privilege -> realistic impact. Give native reviewers one stable hypothesis ID and use Ghidra only where control flow can change the conclusion.
+9. If a decisive native symbol remains external/thunk-only, use `tools/firmware_symbol_owner.py`; cross-library work keeps the same hypothesis budget. Stop with `NEEDS VALIDATION` when the remaining gap is runtime/topology/hardware/backend evidence or broad vendor archaeology.
+10. Important High/Critical candidates require `security-validator`. Keep CVE-label uncertainty separate from locally established vulnerability behavior.
+11. All non-scout research remains last-mile and bounded. Never send private target data, target hashes, credentials, keys or source blocks to public research.
+12. Maintain all durable `findings/` records and create `reports/STATIC_SECURITY_REPORT.md`. Separate confirmed severity from unresolved potential impact/status; do not call an unproven primitive a severity finding.
+13. Run both `python3 tools/firmware_postrun_check.py` and `python3 tools/firmware_hypothesis_check.py`. A PASS requires deterministic identity/web-surface artifacts, explicit top-web dispositions, and explicit advisory-seed dispositions. If either checker fails, make at most one bounded repair pass; otherwise report partial coverage rather than claiming completion.
 
-Do not ask the operator to run local analysis commands during a normal `/analyze` assessment. The agents invoke deterministic tools, Ghidra helpers and searches themselves. Never execute target firmware binaries on the host.
+Do not ask the operator to run routine analysis commands during `/analyze`. Never execute target firmware binaries on the analysis host and never infer WAN exposure from static configuration alone.
