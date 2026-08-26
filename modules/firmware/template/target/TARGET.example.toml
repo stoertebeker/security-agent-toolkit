@@ -6,15 +6,17 @@ authorized=false
 # Maximum delegated agent tasks executing concurrently. Agent-enforced because
 # OpenCode currently has no native global concurrency cap.
 max_parallel_agents=2
-# Public research remains bounded. One exact-product/version advisory scout is
-# allowed early as a hypothesis-seeding exception; all other research is last-mile.
-advisory_scout=true
+# Blind vulnerability discovery is the default. Set advisory_scout=true only
+# for an explicitly assisted/correlation run where known public advisories are
+# allowed to seed hypotheses. Do not enable it for discovery benchmarks.
+advisory_scout=false
 research_max_questions=5
 research_max_sources_per_question=5
 research_max_report_words=900
 
 [firmware]
-# Preserve the vendor filename when practical; it is useful identity evidence.
+# Preserve the vendor filename when practical for provenance/reporting. It must
+# not influence blind vulnerability discovery when advisory_scout=false.
 path="input/firmware.bin"
 # Recursive unblob extraction controls. Extraction stays project-local.
 extract_processes=4
@@ -23,9 +25,9 @@ extract_timeout_seconds=3600
 max_rootfs_candidates=20
 
 [identity]
-# Optional evidence overrides for unusual/proprietary images. Leave blank during
-# normal hands-off runs; deterministic identity extraction should populate these
-# facts from filename, image strings and the extracted rootfs when possible.
+# Optional provenance/identity overrides for unusual/proprietary images. These
+# are for accurate target identification and optional advisory correlation, not
+# for local vulnerability discovery. Leave blank during normal hands-off runs.
 source_filename=""
 vendor=""
 product=""
